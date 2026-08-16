@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-16
 - Branch: `main`
-- Baseline commit: `36106cf`
-- Active phase: Phase 3 — subscription API and scheduler
+- Baseline commit: `290d820`
+- Active phase: Phase 4 — download worker and safe storage
 
 ## Completed
 
@@ -13,13 +13,15 @@
 - Kmoe stable schemas/errors, current mirror list, ordered failover, non-replayed POST, strict current volume JSON parser, format-specific sizes, comics/subscriptions/remote-item/task models, migration, initialization and refresh services committed as `35559aa`.
 - Current/legacy login endpoint detection, one-shot password POST, same-mirror `/my.php` validation, HKDF-derived Fernet cookie encryption, single-account credential persistence and administrator-protected Kmoe login/status APIs committed as `4729fe4`.
 - Sanitized search/detail fixtures, escape-aware JavaScript call parsing, trusted detail-path normalization, safe description text extraction, credential-backed search/detail APIs, and strict authenticated `/data_book.php` flow committed as `36106cf`.
+- Subscription create/list/edit/pause/resume/delete APIs, explicit pending-task cancellation choice, persistent check batches, atomic SQLite task claiming, APScheduler six-hour checks, adjustable interval, manual checks, idempotent discovery and restart recovery committed as `290d820`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `36106cf`: 26 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
+- Verification at `290d820`: 28 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_04`, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
 
 ## Active work
 
 - Phase 2 target is complete: administrator can connect Kmoe, search, and fetch standardized comic details through mock-tested API contracts.
-- A Phase 3 data slice is complete, but scheduler and subscription API routes are not implemented.
+- Phase 3 target is complete: subscription management and persistent scheduled/manual checks are available through administrator APIs.
+- Phase 4 has not started: download URL resolution, storage validation, worker lifecycle and download APIs remain.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -43,8 +45,8 @@
 
 ## Next actions
 
-1. Expose administrator-protected subscription create/list/edit/pause/resume/check routes around the existing initialization and refresh services.
-2. Ensure API creation fetches fresh comic details and applies `backfill` or `future_only` atomically.
-3. Add APScheduler and a database-backed periodic refresh service with a default six-hour global interval and manual check-all trigger.
-4. Add startup/shutdown lifecycle integration and tests proving repeated checks remain idempotent.
-5. Then implement download URL resolution, persistent workers, safe storage, retry/cancel and recovery.
+1. Implement strict `/getdownurl.php` request/response parsing for EPUB/MOBI and line 0/1 without persisting signed URLs.
+2. Add safe download-root path construction and `.part` to atomic-final-file promotion with length/non-empty checks.
+3. Implement atomic pending-task claiming, bounded retry/backoff, cancellation and startup recovery.
+4. Expose task list/filter/cancel/retry APIs and a throttled event stream or polling-compatible status contract.
+5. Then build the React management UI over the completed APIs.
