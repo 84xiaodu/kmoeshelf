@@ -73,6 +73,13 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class CheckStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Comic(Base):
     __tablename__ = "comics"
 
@@ -106,6 +113,55 @@ class Subscription(Base):
     last_error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    check_interval_hours: Mapped[int] = mapped_column(Integer, default=6)
+    check_concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    download_concurrency: Mapped[int] = mapped_column(Integer, default=2)
+    max_download_retries: Mapped[int] = mapped_column(Integer, default=3)
+    preferred_mirror: Mapped[str] = mapped_column(String(255), default="mox.moe")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class CheckBatch(Base):
+    __tablename__ = "check_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(
+        String(16), default=CheckStatus.PENDING.value, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class SubscriptionCheck(Base):
+    __tablename__ = "subscription_checks"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "subscription_id", name="uq_batch_subscription"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("check_batches.id", ondelete="CASCADE"), index=True
+    )
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=CheckStatus.PENDING.value, index=True
+    )
+    discovered_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class RemoteItemRecord(Base):
