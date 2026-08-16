@@ -11,8 +11,10 @@ from fastapi import FastAPI, HTTPException, Request
 from sqlalchemy import text
 
 from .api.auth import router as auth_router
+from .api.kmoe import router as kmoe_router
 from .config import Settings, get_settings
 from .db import create_database
+from .kmoe.client import KmoeClient
 
 
 def alembic_config(database_url: str) -> Config:
@@ -40,7 +42,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved
+    app.state.kmoe_client_factory = KmoeClient
     app.include_router(auth_router)
+    app.include_router(kmoe_router)
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:

@@ -71,25 +71,37 @@ class KmoeClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    def set_cookies(self, cookies: dict[str, str]) -> None:
+    def set_cookies(self, cookies: dict[str, str], *, domain: str | None = None) -> None:
         self._client.cookies.clear()
         for name, value in cookies.items():
-            self._client.cookies.set(name, value)
+            self._client.cookies.set(name, value, domain=domain)
 
     def get_cookies(self) -> dict[str, str]:
         return dict(self._client.cookies.items())
 
-    async def get(self, path: str, **kwargs: object) -> httpx.Response:
-        return await self.request("GET", path, **kwargs)
+    async def get(
+        self, path: str, *, allow_failover: bool = True, **kwargs: object
+    ) -> httpx.Response:
+        return await self.request("GET", path, allow_failover=allow_failover, **kwargs)
 
     async def post(self, path: str, **kwargs: object) -> httpx.Response:
         return await self.request("POST", path, **kwargs)
 
-    async def request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        allow_failover: bool | None = None,
+        **kwargs: object,
+    ) -> httpx.Response:
         if not path.startswith("/"):
             raise ValueError("Kmoe request path must start with '/'")
 
-        can_replay = method.upper() in {"GET", "HEAD"}
+        is_idempotent = method.upper() in {"GET", "HEAD"}
+        can_replay = is_idempotent if allow_failover is None else (
+            is_idempotent and allow_failover
+        )
         mirrors = (self.active_mirror,)
         if can_replay:
             mirrors += tuple(
@@ -110,7 +122,7 @@ class KmoeClient:
                         await asyncio.sleep(0.25 * (2**attempt))
                         continue
                     if not can_replay:
-                        raise NetworkError("Non-idempotent Kmoe request failed; not replayed")
+                        raise NetworkError("Kmoe request failed and was not replayed")
                     break
                 except httpx.RequestError as exc:
                     if can_replay:

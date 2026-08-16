@@ -48,6 +48,18 @@ class AdminSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
+class KmoeCredential(Base):
+    __tablename__ = "kmoe_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320))
+    encrypted_cookies: Mapped[str] = mapped_column(Text)
+    active_mirror: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    last_validated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class InitializationStrategy(StrEnum):
     BACKFILL = "backfill"
     FUTURE_ONLY = "future_only"
