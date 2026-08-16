@@ -41,6 +41,10 @@ class RateLimited(KmoeError):
     code = "rate_limited"
 
 
+class DownloadUrlInvalid(KmoeError):
+    code = "download_url_invalid"
+
+
 class MirrorExhausted(NetworkError):
     code = "mirror_unavailable"
 
