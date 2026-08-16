@@ -5,6 +5,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, HTTPException, Request
@@ -12,6 +13,7 @@ from sqlalchemy import text
 
 from .api.auth import router as auth_router
 from .api.checks import router as checks_router
+from .api.downloads import router as downloads_router
 from .api.kmoe import router as kmoe_router
 from .api.settings import router as settings_router
 from .api.subscriptions import router as subscriptions_router
@@ -19,6 +21,7 @@ from .config import Settings, get_settings
 from .db import create_database
 from .kmoe.client import KmoeClient
 from .services.checks import CheckService
+from .services.downloads import DownloadService
 
 
 def alembic_config(database_url: str) -> Config:
@@ -45,19 +48,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.database,
             resolved,
             lambda: app.state.kmoe_client_factory(),
+            lambda: app.state.download_service.wake(),
+        )
+        app.state.download_service = app.state.download_service_factory(
+            app.state.database,
+            resolved,
+            lambda: app.state.kmoe_client_factory(),
+            lambda: app.state.transfer_client_factory(),
         )
         try:
             await app.state.check_service.start()
+            await app.state.download_service.start()
             yield
         finally:
+            await app.state.download_service.stop()
             await app.state.check_service.stop()
             await app.state.database.engine.dispose()
 
     app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved
     app.state.kmoe_client_factory = KmoeClient
+    app.state.download_service_factory = DownloadService
+    app.state.transfer_client_factory = lambda: httpx.AsyncClient(
+        follow_redirects=False,
+        timeout=httpx.Timeout(60),
+        headers={"X-Km-From": "kb_http_down"},
+    )
     app.include_router(auth_router)
     app.include_router(checks_router)
+    app.include_router(downloads_router)
     app.include_router(kmoe_router)
     app.include_router(settings_router)
     app.include_router(subscriptions_router)

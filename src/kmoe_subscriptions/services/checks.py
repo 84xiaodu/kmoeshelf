@@ -45,10 +45,12 @@ class CheckService:
         database: Database,
         settings: Settings,
         client_factory: Callable[[], KmoeClient],
+        download_wake: Callable[[], None] | None = None,
     ) -> None:
         self.database = database
         self.settings = settings
         self.client_factory = client_factory
+        self.download_wake = download_wake
         self._scheduler: AsyncIOScheduler | None = None
         self._workers: list[asyncio.Task[None]] = []
         self._wake = asyncio.Event()
@@ -282,6 +284,8 @@ class CheckService:
                             message=f"Discovered {discovered} new item(s) for {details.title}",
                         )
                     )
+                    if self.download_wake is not None:
+                        self.download_wake()
         except KmoeError as exc:
             await self._fail_check(check_id, subscription_id, exc.code, str(exc), exc)
         except Exception as exc:

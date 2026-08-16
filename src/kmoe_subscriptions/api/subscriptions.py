@@ -161,6 +161,7 @@ async def create_subscription(
             )
         )
         await db.commit()
+        request.app.state.download_service.wake()
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail="Comic is already subscribed") from exc

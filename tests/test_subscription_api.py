@@ -16,6 +16,20 @@ ADMIN_PASSWORD = "correct horse battery staple"
 FIXTURES = Path(__file__).parent / "fixtures" / "kmoe"
 
 
+class NoopDownloadService:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        pass
+
+    def wake(self) -> None:
+        pass
+
+
 def fixture_text(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
@@ -65,6 +79,7 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
         rate_limit_delay=0,
         transport=httpx.MockTransport(handler),
     )
+    app.state.download_service_factory = NoopDownloadService
     with TestClient(app) as web:
         setup = web.post("/api/auth/setup", json={"password": ADMIN_PASSWORD})
         csrf = setup.json()["csrf_token"]
@@ -89,6 +104,13 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
         assert created.status_code == 201
         subscription_id = created.json()["id"]
         assert created.json()["content_types"] == ["volume"]
+        downloads = web.get("/api/downloads", params={"status": "pending"})
+        assert downloads.status_code == 200
+        task_id = downloads.json()[0]["id"]
+        cancelled = web.post(f"/api/downloads/{task_id}/cancel", headers=headers)
+        assert cancelled.json()["status"] == "cancelled"
+        retried = web.post(f"/api/downloads/{task_id}/retry", headers=headers)
+        assert retried.json()["status"] == "pending"
 
         duplicate = web.post(
             "/api/subscriptions",
