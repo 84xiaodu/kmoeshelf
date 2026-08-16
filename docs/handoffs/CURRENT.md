@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-16
 - Branch: `main`
-- Baseline commit: `4729fe4`
-- Active phase: Phase 2 — Kmoe adapter, then subscription domain
+- Baseline commit: `36106cf`
+- Active phase: Phase 3 — subscription API and scheduler
 
 ## Completed
 
@@ -12,12 +12,13 @@
 - FastAPI application factory, environment validation, Alembic migration, SQLite setup, administrator initialization/login/logout, Session/CSRF protection, health checks, Dockerfile and Compose committed as `e980ec8`.
 - Kmoe stable schemas/errors, current mirror list, ordered failover, non-replayed POST, strict current volume JSON parser, format-specific sizes, comics/subscriptions/remote-item/task models, migration, initialization and refresh services committed as `35559aa`.
 - Current/legacy login endpoint detection, one-shot password POST, same-mirror `/my.php` validation, HKDF-derived Fernet cookie encryption, single-account credential persistence and administrator-protected Kmoe login/status APIs committed as `4729fe4`.
+- Sanitized search/detail fixtures, escape-aware JavaScript call parsing, trusted detail-path normalization, safe description text extraction, credential-backed search/detail APIs, and strict authenticated `/data_book.php` flow committed as `36106cf`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `4729fe4`: 22 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
+- Verification at `36106cf`: 26 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
 
 ## Active work
 
-- Phase 2 remains incomplete: search parsing, detail metadata/hash discovery, authenticated credential restoration and search/detail API routes are not implemented.
+- Phase 2 target is complete: administrator can connect Kmoe, search, and fetch standardized comic details through mock-tested API contracts.
 - A Phase 3 data slice is complete, but scheduler and subscription API routes are not implemented.
 - No subagent currently owns application files.
 
@@ -42,8 +43,8 @@
 
 ## Next actions
 
-1. Add a credential-backed Kmoe client helper that restores the encrypted cookie jar and rejects invalid/expired credentials.
-2. Implement search result extraction from sanitized fixtures and expose an administrator-protected search API.
-3. Implement detail metadata and `data_book("hash")` discovery, then fetch and strictly parse `/data_book.php` without accepting the unauthenticated empty sentinel.
-4. Add mock-transport API tests for search/detail, mirror failover and structured authentication/site-change failures.
-5. Then add scheduler and subscription API routes around the already-tested data services.
+1. Expose administrator-protected subscription create/list/edit/pause/resume/check routes around the existing initialization and refresh services.
+2. Ensure API creation fetches fresh comic details and applies `backfill` or `future_only` atomically.
+3. Add APScheduler and a database-backed periodic refresh service with a default six-hour global interval and manual check-all trigger.
+4. Add startup/shutdown lifecycle integration and tests proving repeated checks remain idempotent.
+5. Then implement download URL resolution, persistent workers, safe storage, retry/cancel and recovery.
