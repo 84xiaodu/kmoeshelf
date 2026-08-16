@@ -30,6 +30,13 @@ class ComicSummary(AdapterModel):
     cover_url: str | None = None
 
 
+class SearchPage(AdapterModel):
+    query: str = Field(min_length=1)
+    current_page: int = Field(ge=1)
+    total_pages: int = Field(ge=1)
+    results: tuple[ComicSummary, ...] = ()
+
+
 class RemoteItem(AdapterModel):
     remote_id: str = Field(min_length=1)
     content_type: ContentType

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import get_db, get_settings, require_csrf, require_same_origin, require_session
 from ..config import Settings
 from ..kmoe.auth import login
+from ..kmoe.catalog import get_comic_details, search_catalog
 from ..kmoe.client import KmoeClient
-from ..kmoe.credentials import encrypt_cookies
-from ..kmoe.errors import KmoeError
+from ..kmoe.credentials import decrypt_cookies, encrypt_cookies
+from ..kmoe.errors import AuthenticationExpired, KmoeError
+from ..kmoe.schemas import ComicDetails, SearchPage
 from ..models import KmoeCredential
 from ..security import utcnow
 
@@ -52,7 +54,49 @@ def error_status(code: str) -> int:
         return 403
     if code == "auth_challenge":
         return 409
+    if code == "not_found":
+        return 404
+    if code == "rate_limited":
+        return 429
+    if code == "credential_decryption_failed":
+        return 500
     return 502
+
+
+async def saved_client(
+    request: Request,
+    settings: Settings,
+    db: AsyncSession,
+) -> tuple[KmoeClient, KmoeCredential]:
+    credential = await db.get(KmoeCredential, 1)
+    if credential is None or credential.status != "active":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "kmoe_not_connected", "message": "Kmoe login required"},
+        )
+    try:
+        snapshot = decrypt_cookies(settings, credential.encrypted_cookies)
+    except KmoeError as exc:
+        await raise_kmoe_error(exc, db=db, credential=credential)
+    client = kmoe_client(request)
+    client.active_mirror = snapshot.mirror
+    client.set_cookies(snapshot.cookies, domain=snapshot.mirror)
+    return client, credential
+
+
+async def raise_kmoe_error(
+    exc: KmoeError,
+    *,
+    db: AsyncSession,
+    credential: KmoeCredential | None = None,
+) -> NoReturn:
+    if credential is not None and isinstance(exc, AuthenticationExpired):
+        credential.status = "expired"
+        await db.commit()
+    raise HTTPException(
+        status_code=error_status(exc.code),
+        detail={"code": exc.code, "message": str(exc)},
+    ) from exc
 
 
 @router.get("/status", response_model=KmoeStatus, dependencies=[Depends(require_session)])
@@ -84,10 +128,7 @@ async def connect(
         async with client:
             authenticated = await login(client, email=body.email, password=body.password)
     except KmoeError as exc:
-        raise HTTPException(
-            status_code=error_status(exc.code),
-            detail={"code": exc.code, "message": str(exc)},
-        ) from exc
+        await raise_kmoe_error(exc, db=db)
 
     credential = await db.get(KmoeCredential, 1)
     if credential is None:
@@ -114,3 +155,42 @@ async def connect(
         mirror=credential.active_mirror,
         status=credential.status,
     )
+
+
+@router.get(
+    "/search",
+    response_model=SearchPage,
+    dependencies=[Depends(require_session)],
+)
+async def search(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    query: Annotated[str, Query(alias="q", min_length=1, max_length=200)],
+    page: Annotated[int, Query(ge=1, le=10_000)] = 1,
+) -> SearchPage:
+    client, credential = await saved_client(request, settings, db)
+    try:
+        async with client:
+            return await search_catalog(client, query=query, page=page)
+    except KmoeError as exc:
+        await raise_kmoe_error(exc, db=db, credential=credential)
+
+
+@router.get(
+    "/comics/{remote_id}",
+    response_model=ComicDetails,
+    dependencies=[Depends(require_session)],
+)
+async def comic_details(
+    remote_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9]+$", max_length=128)],
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ComicDetails:
+    client, credential = await saved_client(request, settings, db)
+    try:
+        async with client:
+            return await get_comic_details(client, remote_id=remote_id)
+    except KmoeError as exc:
+        await raise_kmoe_error(exc, db=db, credential=credential)
