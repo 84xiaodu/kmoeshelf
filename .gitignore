@@ -8,6 +8,8 @@ __pycache__/
 .ruff_cache/
 node_modules/
 dist/
+test-results/
+playwright-report/
+*.tsbuildinfo
 data/
 downloads/
-

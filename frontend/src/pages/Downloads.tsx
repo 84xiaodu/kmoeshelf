@@ -1,0 +1,48 @@
+import { useEffect, useMemo, useState } from "react";
+import { api, messageOf } from "../api";
+import type { DownloadTask, TaskStatus } from "../types";
+import { Alert, EmptyState, formatBytes, formatDate, Spinner } from "../ui";
+
+const statuses: [TaskStatus | "", string][] = [["", "全部"], ["running", "下载中"], ["pending", "等待"], ["failed", "失败"], ["completed", "完成"], ["cancelled", "已取消"]];
+const statusLabel: Record<TaskStatus, string> = { pending: "等待中", running: "下载中", completed: "已完成", failed: "失败", cancelled: "已取消" };
+
+export default function Downloads() {
+  const [tasks, setTasks] = useState<DownloadTask[]>([]);
+  const [filter, setFilter] = useState<TaskStatus | "">("");
+  const [loading, setLoading] = useState(true);
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState("");
+  async function load() {
+    try { setTasks(await api.downloads()); }
+    catch (reason) { setError(messageOf(reason)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => {
+    void load();
+    const events = new EventSource("/api/downloads/events");
+    const update = (event: MessageEvent<string>) => { try { setTasks(JSON.parse(event.data) as DownloadTask[]); setLive(true); } catch { setError("下载状态事件格式无效"); } };
+    events.addEventListener("downloads", update as EventListener);
+    events.onerror = () => setLive(false);
+    return () => events.close();
+  }, []);
+  const visible = useMemo(() => filter ? tasks.filter((task) => task.status === filter) : tasks, [filter, tasks]);
+  async function mutate(action: () => Promise<DownloadTask>) {
+    setError("");
+    try { const next = await action(); setTasks((current) => current.map((task) => task.id === next.id ? next : task)); }
+    catch (reason) { setError(messageOf(reason)); }
+  }
+  return <section className="page">
+    <header className="page-head"><div><p className="eyebrow">传输中心</p><h1>下载任务</h1><p><span className={`live-indicator ${live ? "is-live" : ""}`} />{live ? "实时状态已连接" : "正在连接实时状态"}</p></div></header>
+    {error && <Alert>{error}</Alert>}
+    <div className="filter-tabs" role="tablist" aria-label="任务状态">{statuses.map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}<span>{value ? tasks.filter((task) => task.status === value).length : tasks.length}</span></button>)}</div>
+    {loading ? <Spinner /> : !visible.length ? <EmptyState title="当前筛选没有任务">任务由补齐订阅或追新检查自动创建。</EmptyState> : <div className="task-list">{visible.map((task) => <TaskRow key={task.id} task={task} mutate={mutate} />)}</div>}
+  </section>;
+}
+
+function TaskRow({ task, mutate }: { task: DownloadTask; mutate: (action: () => Promise<DownloadTask>) => Promise<void> }) {
+  const percentage = task.total_bytes ? Math.min(100, Math.round(task.progress_bytes / task.total_bytes * 100)) : 0;
+  return <article className="task-row"><div className="task-top"><div><span className={`pill status-${task.status}`}>{statusLabel[task.status]}</span><small>任务 #{task.id}</small><h2>{task.comic_title}</h2><p>{task.item_name} · {task.content_type} · {task.download_format.toUpperCase()}</p></div><div className="task-actions">{["pending", "running"].includes(task.status) && <button className="button button-quiet" onClick={() => void mutate(() => api.cancelDownload(task.id))}>取消</button>}{["failed", "cancelled"].includes(task.status) && <button className="button button-primary" onClick={() => void mutate(() => api.retryDownload(task.id))}>重试</button>}</div></div>
+    {(task.status === "running" || task.progress_bytes > 0) && <div className="progress"><div><span>已传输 {formatBytes(task.progress_bytes)}{task.total_bytes ? ` / ${formatBytes(task.total_bytes)}` : ""}</span><strong>{task.total_bytes ? `${percentage}%` : "计算中"}</strong></div><progress max="100" value={percentage} /></div>}
+    {task.error_message && <Alert>{task.error_message} <code>{task.error_code}</code></Alert>}
+    <footer className="task-meta"><span>尝试 {task.attempt_count} 次</span><span>创建于 {formatDate(task.created_at)}</span>{task.next_attempt_at && <span>下次重试 {formatDate(task.next_attempt_at)}</span>}{task.final_path && <span className="path" title={task.final_path}>{task.final_path}</span>}</footer></article>;
+}

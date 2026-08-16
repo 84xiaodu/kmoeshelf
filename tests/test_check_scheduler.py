@@ -116,13 +116,28 @@ def test_manual_checks_are_persistent_and_idempotent(tmp_path: Path) -> None:
         subscription_id = created.json()["id"]
         assert created.json()["next_check_at"] is not None
 
-        assert web.get("/api/settings").json() == {"check_interval_hours": 6}
+        assert web.get("/api/settings").json() == {
+            "check_interval_hours": 6,
+            "download_concurrency": 2,
+            "max_download_retries": 3,
+            "preferred_mirror": "mox.moe",
+        }
         updated = web.patch(
             "/api/settings",
-            json={"check_interval_hours": 2},
+            json={
+                "check_interval_hours": 2,
+                "download_concurrency": 3,
+                "max_download_retries": 4,
+                "preferred_mirror": "kxo.moe",
+            },
             headers=headers,
         )
-        assert updated.json() == {"check_interval_hours": 2}
+        assert updated.json() == {
+            "check_interval_hours": 2,
+            "download_concurrency": 3,
+            "max_download_retries": 4,
+            "preferred_mirror": "kxo.moe",
+        }
 
         include_new_volume = True
         first = web.post(

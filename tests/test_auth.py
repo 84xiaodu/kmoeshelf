@@ -49,6 +49,28 @@ def test_setup_login_logout(tmp_path: Path) -> None:
             "authenticated": True,
         }
 
+        csrf = login.json()["csrf_token"]
+        assert web.post(
+            "/api/auth/password",
+            json={"current_password": "wrong password!", "new_password": "a new secure password"},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code == 401
+        changed = web.post(
+            "/api/auth/password",
+            json={"current_password": PASSWORD, "new_password": "a new secure password"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert changed.status_code == 204
+        assert web.post(
+            "/api/auth/logout", headers={"X-CSRF-Token": csrf}
+        ).status_code == 204
+        assert web.post(
+            "/api/auth/login", json={"password": PASSWORD}
+        ).status_code == 401
+        assert web.post(
+            "/api/auth/login", json={"password": "a new secure password"}
+        ).status_code == 200
+
 
 def test_rejects_cross_site_setup(tmp_path: Path) -> None:
     with client(tmp_path) as web:
@@ -58,4 +80,3 @@ def test_rejects_cross_site_setup(tmp_path: Path) -> None:
             headers={"Origin": "https://attacker.example"},
         )
         assert response.status_code == 403
-

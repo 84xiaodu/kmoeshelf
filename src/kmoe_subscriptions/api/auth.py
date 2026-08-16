@@ -41,6 +41,11 @@ class AuthStatus(BaseModel):
     authenticated: bool
 
 
+class PasswordChangeInput(BaseModel):
+    current_password: str = Field(min_length=12, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
+
+
 @dataclass(slots=True)
 class CurrentSession:
     row: AdminSession
@@ -226,3 +231,31 @@ async def logout(
     response.status_code = 204
     return response
 
+
+@router.post(
+    "/password",
+    status_code=204,
+    dependencies=[Depends(require_same_origin)],
+)
+async def change_password(
+    body: PasswordChangeInput,
+    response: Response,
+    current: Annotated[CurrentSession, Depends(require_csrf)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    admin = await db.get(Admin, current.row.admin_id)
+    if admin is None or not verify_password(admin.password_hash, body.current_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if hmac.compare_digest(body.current_password, body.new_password):
+        raise HTTPException(status_code=422, detail="New password must be different")
+    admin.password_hash = hash_password(body.new_password)
+    admin.password_changed_at = utcnow()
+    await db.execute(
+        delete(AdminSession).where(
+            AdminSession.admin_id == admin.id,
+            AdminSession.token_hash != current.row.token_hash,
+        )
+    )
+    await db.commit()
+    response.status_code = 204
+    return response

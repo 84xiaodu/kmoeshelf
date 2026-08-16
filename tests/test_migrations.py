@@ -7,7 +7,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 
 from kmoe_subscriptions.db import Base, create_database
-from kmoe_subscriptions.main import migrate
+from kmoe_subscriptions.main import alembic_config, migrate
 
 
 def test_migrations_match_models(tmp_path: Path) -> None:
@@ -25,3 +25,16 @@ def test_migrations_match_models(tmp_path: Path) -> None:
         assert differences == []
 
     asyncio.run(run())
+
+
+def test_alembic_config_supports_installed_runtime_layout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
+    (tmp_path / "migrations").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    config = alembic_config("sqlite+aiosqlite:///runtime.db")
+
+    assert config.config_file_name == str(tmp_path / "alembic.ini")
+    assert config.get_main_option("script_location") == str(tmp_path / "migrations")

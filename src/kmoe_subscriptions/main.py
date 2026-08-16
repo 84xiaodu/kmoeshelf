@@ -9,6 +9,7 @@ import httpx
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from .api.auth import router as auth_router
@@ -25,7 +26,14 @@ from .services.downloads import DownloadService
 
 
 def alembic_config(database_url: str) -> Config:
-    project_root = Path(__file__).resolve().parents[2]
+    source_root = Path(__file__).resolve().parents[2]
+    runtime_root = Path.cwd()
+    project_root = (
+        runtime_root
+        if (runtime_root / "alembic.ini").is_file()
+        and (runtime_root / "migrations").is_dir()
+        else source_root
+    )
     config = Config(str(project_root / "alembic.ini"))
     config.set_main_option("script_location", str(project_root / "migrations"))
     config.set_main_option("sqlalchemy.url", database_url)
@@ -97,5 +105,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Database not ready") from exc
         return {"status": "ok"}
+
+    package_frontend = Path(__file__).resolve().parent / "static"
+    development_frontend = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    frontend = package_frontend if package_frontend.is_dir() else development_frontend
+    if frontend.is_dir():
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
 
     return app

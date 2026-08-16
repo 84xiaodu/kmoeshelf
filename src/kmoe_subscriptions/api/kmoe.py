@@ -10,11 +10,11 @@ from .auth import get_db, get_settings, require_csrf, require_same_origin, requi
 from ..config import Settings
 from ..kmoe.auth import login
 from ..kmoe.catalog import get_comic_details, search_catalog
-from ..kmoe.client import KmoeClient
+from ..kmoe.client import DEFAULT_MIRRORS, KmoeClient
 from ..kmoe.credentials import decrypt_cookies, encrypt_cookies
 from ..kmoe.errors import AuthenticationExpired, KmoeError
 from ..kmoe.schemas import ComicDetails, SearchPage
-from ..models import KmoeCredential
+from ..models import AppSetting, KmoeCredential
 from ..security import utcnow
 
 
@@ -124,6 +124,10 @@ async def connect(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> KmoeStatus:
     client = kmoe_client(request)
+    setting = await db.get(AppSetting, 1)
+    preferred = setting.preferred_mirror if setting else DEFAULT_MIRRORS[0]
+    if preferred in DEFAULT_MIRRORS:
+        client.active_mirror = preferred
     try:
         async with client:
             authenticated = await login(client, email=body.email, password=body.password)
