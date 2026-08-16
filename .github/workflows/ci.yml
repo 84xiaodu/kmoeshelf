@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject runtime data and private keys
+        run: scripts/check-sensitive-files.sh
+      - name: Check patch formatting
+        run: git diff --check HEAD^ HEAD
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install '.[test]'
+      - run: python -m pytest -q -s
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - run: npx --prefix frontend playwright install --with-deps chromium
+      - run: npm --prefix frontend test
+
+  container:
+    runs-on: ubuntu-latest
+    needs: [security, backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t kmoe-subscriptions:ci .
+      - name: Validate Compose
+        env:
+          KMOE_APP_SECRET_KEY: local-ci-validation-key-000000000000000000
+        run: docker compose config >/dev/null

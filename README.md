@@ -1,6 +1,17 @@
 # Kmoe 自动订阅服务
 
-面向 NAS/Linux 的 Kmoe 漫画订阅与自动下载 Web 服务。当前已完成应用基础、数据库迁移、管理员认证、健康检查和 Docker 入口。
+面向 NAS/Linux 的 Kmoe 漫画订阅与自动下载 Web 服务。管理员可在浏览器中登录 Kmoe、搜索漫画、订阅追新、查看实时下载状态，并维护检查与下载设置。
+
+## 功能
+
+- 单管理员初始化、登录、CSRF 防护与管理员改密。
+- 加密保存一个 Kmoe 会话；Kmoe 密码不落盘。
+- 漫画搜索、详情和单行本/番外/连载话分类。
+- `仅追新` 与 `补齐已有内容` 两种订阅策略。
+- 默认每 6 小时自动检查，也可全局或单订阅立即检查。
+- 持久化下载队列、并发、断点续传、重试、取消和重启恢复。
+- SSE 实时下载状态，以及响应式 React 管理界面。
+- SQLite 升级前完整性校验备份与 Docker Compose 部署。
 
 ## Docker 启动
 
@@ -8,12 +19,17 @@
 cp .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 # 将输出写入 .env 的 KMOE_APP_SECRET_KEY
-docker compose up --build
+docker compose up -d --build
+docker compose ps
 ```
 
-服务默认监听 <http://localhost:8000>，API 文档位于 <http://localhost:8000/docs>。
+服务默认监听 <http://localhost:8000>。首次打开会要求创建管理员，之后在“设置”中登录 Kmoe。
+
+数据保存在 `./data`，漫画文件保存在 `./downloads`。务必保留 `.env` 中的原密钥；更换密钥会使现有会话和加密 Kmoe Cookie 失效。详细升级、HTTPS、备份和恢复步骤见 [运维手册](docs/operations.md)。
 
 ## 本地开发
+
+后端：
 
 ```bash
 python -m venv .venv
@@ -24,13 +40,32 @@ export KMOE_DOWNLOAD_DIR=./downloads
 .venv/bin/uvicorn kmoe_subscriptions.main:create_app --factory --reload
 ```
 
-测试：
+前端开发服务器会把 `/api` 与 `/health` 代理到 `127.0.0.1:8000`：
+
+```bash
+npm --prefix frontend install
+npm --prefix frontend run dev
+```
+
+打开 Vite 显示的地址。生产构建由 Docker 多阶段构建复制到 Python 包，并由 FastAPI 同源提供。
+
+## 测试
 
 ```bash
 .venv/bin/python -m pytest -q -s
+npm --prefix frontend run build
+npm --prefix frontend test
+KMOE_APP_SECRET_KEY=local-compose-validation-key-000000000000 docker compose config
 ```
 
-完整设计与实施步骤见：
+首次运行浏览器测试还需要：
 
-- `docs/superpowers/specs/2026-08-16-kmoe-subscription-service-design.md`
-- `docs/superpowers/plans/2026-08-16-kmoe-subscription-service-implementation.md`
+```bash
+npx --prefix frontend playwright install --with-deps chromium
+```
+
+完整设计、实施步骤和发布验收见：
+
+- [设计规格](docs/superpowers/specs/2026-08-16-kmoe-subscription-service-design.md)
+- [实施计划](docs/superpowers/plans/2026-08-16-kmoe-subscription-service-implementation.md)
+- [发布验收清单](docs/release-checklist.md)

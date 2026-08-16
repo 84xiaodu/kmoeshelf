@@ -13,10 +13,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY pyproject.toml alembic.ini ./
+RUN mkdir -p src/kmoe_subscriptions \
+    && touch src/kmoe_subscriptions/__init__.py \
+    && pip install --no-cache-dir . \
+    && rm -rf src
 COPY migrations migrations
 COPY src src
 COPY --from=frontend /frontend/dist src/kmoe_subscriptions/static
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /data /downloads \
