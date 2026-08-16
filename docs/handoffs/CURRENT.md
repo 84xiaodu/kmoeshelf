@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: `9451ec8`
-- Active phase: Phase 5 — React management interface
+- Baseline commit: `8aad3a5`
+- Active phase: Phase 6 — operations and release acceptance
 
 ## Completed
 
@@ -18,15 +18,18 @@
 - Stable per-comic library directories plus persistent task retry, cancellation, start and completion fields with migration `20260816_05` committed as `0911a93`.
 - Atomic download claiming, startup recovery, validated resume/redirect transfer, throttled progress writes, safe failure mapping, bounded retry state, cooperative cancellation, task polling/filter/cancel/retry APIs and immediate worker wakeups committed as `88721a4`.
 - Authenticated SSE download snapshots and keepalives committed as `52879e3`; bounded exponential retry jitter committed as `9451ec8`.
+- Responsive React/TypeScript management UI for setup/login, dashboard, Kmoe login, search/detail, subscription management, SSE downloads and settings; full runtime settings and administrator password change APIs; FastAPI static hosting; Playwright main-flow coverage; and Docker multi-stage frontend build committed as `8aad3a5`.
+- Installed-wheel migration discovery now prefers the runtime project root, fixing Docker startup while retaining source-tree tests.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `9451ec8`: 35 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_05`, model/migration drift, compilation and `git diff --check` passed.
+- Verification at `8aad3a5`: 36 Python tests passed with `.venv/bin/python -m pytest -q -s`; `npm --prefix frontend run build` and the Chromium Playwright main flow passed; `docker build -t kmoe-subscriptions:phase5 .` passed; the built container returned `{"status":"ok"}` from `/health/ready` and served the hashed React assets from `/`.
 
 ## Active work
 
 - Phase 2 target is complete: administrator can connect Kmoe, search, and fetch standardized comic details through mock-tested API contracts.
 - Phase 3 target is complete: subscription management and persistent scheduled/manual checks are available through administrator APIs.
 - Phase 4 target is complete: persistent worker lifecycle, safe transfer/resume, bounded jittered retries, cooperative cancellation, restart recovery, polling/filter/mutation APIs and authenticated SSE status snapshots are implemented and tested.
-- Phase 5 is active: the React management interface has not been scaffolded yet.
+- Phase 5 target is complete: all first-release management flows are available in the responsive Web UI, download status uses SSE, and production assets are served by FastAPI.
+- Phase 6 is active: operations documentation, CI, backup-before-risky-migration behavior and the final ten-scenario release checklist remain.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -50,6 +53,7 @@
 
 ## Next actions
 
-1. Build the React management UI for setup/login, Kmoe login, search/detail, subscriptions, downloads and settings.
-2. Add the frontend production build to the Python/Docker image and cover the main flow with Playwright.
-3. Finish operations documentation, CI and release acceptance checks.
+1. Add database backup-before-risky-migration behavior and focused recovery tests.
+2. Finish NAS/Linux deployment, reverse-proxy HTTPS, backup/restore and upgrade documentation.
+3. Add CI for Python, frontend build/Playwright, Docker and sensitive-data checks.
+4. Execute and record the design document's ten release acceptance scenarios.
