@@ -12,6 +12,7 @@ dependencies = [
   "alembic>=1.14",
   "argon2-cffi>=23.1",
   "fastapi>=0.115",
+  "httpx>=0.28",
   "pydantic-settings>=2.7",
   "sqlalchemy[asyncio]>=2.0.36",
   "uvicorn>=0.34",
@@ -19,7 +20,6 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-  "httpx>=0.28",
   "pytest>=8.3",
 ]
 
