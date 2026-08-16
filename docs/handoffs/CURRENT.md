@@ -2,7 +2,7 @@
 
 - Updated: 2026-08-16
 - Branch: `main`
-- Baseline commit: `84b596b`
+- Baseline commit: `0911a93`
 - Active phase: Phase 4 — download worker and safe storage
 
 ## Completed
@@ -15,8 +15,9 @@
 - Sanitized search/detail fixtures, escape-aware JavaScript call parsing, trusted detail-path normalization, safe description text extraction, credential-backed search/detail APIs, and strict authenticated `/data_book.php` flow committed as `36106cf`.
 - Subscription create/list/edit/pause/resume/delete APIs, explicit pending-task cancellation choice, persistent check batches, atomic SQLite task claiming, APScheduler six-hour checks, adjustable interval, manual checks, idempotent discovery and restart recovery committed as `290d820`.
 - Strict `/getdownurl.php` format/line mapping, quota/error parsing, HTTPS/public-host validation, cross-platform path sanitization, `.part` integrity checks and atomic no-clobber final promotion committed as `84b596b`.
+- Stable per-comic library directories plus persistent task retry, cancellation, start and completion fields with migration `20260816_05` committed as `0911a93`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `84b596b`: 32 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_04`, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
+- Full verification at `84b596b`: 32 tests passed. Targeted verification at `0911a93`: subscription and migration suites passed (4 tests); migration chain through `20260816_05`, model/migration drift, compilation and `git diff --check` passed.
 
 ## Active work
 
@@ -46,8 +47,8 @@
 
 ## Next actions
 
-1. Add a fixed `library_dir` to Comic and retry/cancel timestamps to DownloadTask through a migration.
-2. Implement atomic pending-task claiming, streaming transfer to `.part`, strict redirect/length checks and final promotion.
-3. Add bounded retry/backoff, cooperative cancellation, authentication/quota pausing and startup recovery.
-4. Expose task list/filter/cancel/retry APIs and a throttled event stream or polling-compatible status contract.
+1. Implement atomic pending-task claiming, streaming transfer to `.part`, strict redirect/length checks and final promotion.
+2. Add bounded retry/backoff, cooperative cancellation, authentication/quota pausing and startup recovery.
+3. Expose task list/filter/cancel/retry APIs and a throttled event stream or polling-compatible status contract.
+4. Run the complete Phase 4 recovery, length mismatch, cancellation and no-duplicate-final-file suite.
 5. Then build the React management UI over the completed APIs.
