@@ -13,7 +13,12 @@ from kmoe_subscriptions.kmoe.schemas import (
     RemoteItem,
 )
 from kmoe_subscriptions.main import migrate
-from kmoe_subscriptions.models import DownloadTask, InitializationStrategy, RemoteItemRecord
+from kmoe_subscriptions.models import (
+    Comic,
+    DownloadTask,
+    InitializationStrategy,
+    RemoteItemRecord,
+)
 from kmoe_subscriptions.services.subscriptions import (
     initialize_subscription,
     refresh_subscription,
@@ -48,6 +53,9 @@ def test_future_only_records_baseline_without_tasks(tmp_path: Path) -> None:
         async with database.sessions() as session:
             assert await session.scalar(select(func.count(RemoteItemRecord.id))) == 2
             assert await session.scalar(select(func.count(DownloadTask.id))) == 0
+            comic = await session.scalar(select(Comic))
+            assert comic is not None
+            assert comic.library_dir == "Test comic [50076]"
         await database.engine.dispose()
 
     asyncio.run(run())

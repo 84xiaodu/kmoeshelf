@@ -14,6 +14,7 @@ from ..models import (
     Subscription,
 )
 from ..security import utcnow
+from ..storage import library_directory
 
 
 async def initialize_subscription(
@@ -30,9 +31,16 @@ async def initialize_subscription(
 
     comic = await session.scalar(select(Comic).where(Comic.remote_id == details.remote_id))
     if comic is None:
-        comic = Comic(remote_id=details.remote_id, title=details.title, detail_path=details.detail_path)
+        comic = Comic(
+            remote_id=details.remote_id,
+            title=details.title,
+            detail_path=details.detail_path,
+            library_dir=library_directory(details.title, details.remote_id),
+        )
         session.add(comic)
         await session.flush()
+    elif comic.library_dir is None:
+        comic.library_dir = library_directory(details.title, details.remote_id)
     comic.title = details.title
     comic.author = details.author
     comic.language = details.language
