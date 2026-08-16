@@ -22,9 +22,15 @@ from kmoe_subscriptions.models import (
     KmoeCredential,
     TaskStatus,
 )
-from kmoe_subscriptions.services.downloads import DownloadService
+from kmoe_subscriptions.services.downloads import DownloadService, retry_delay
 from kmoe_subscriptions.services.subscriptions import initialize_subscription
 from kmoe_subscriptions.storage import download_paths
+
+
+def test_retry_delay_uses_bounded_exponential_jitter() -> None:
+    assert retry_delay(1, jitter=0) == 2
+    assert retry_delay(1, jitter=1) == 2.5
+    assert retry_delay(20, jitter=1) == 61
 
 
 def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> None:

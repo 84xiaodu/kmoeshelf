@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import random
 import re
 import time
 from collections.abc import Callable
@@ -49,6 +50,14 @@ class DownloadCancelled(Exception):
 
 class RetryableDownload(Exception):
     pass
+
+
+def retry_delay(attempt_count: int, *, jitter: float | None = None) -> float:
+    base = min(60.0, float(2**attempt_count))
+    value = random.random() if jitter is None else jitter
+    if not 0 <= value <= 1:
+        raise ValueError("Retry jitter must be between zero and one")
+    return base + value * min(1.0, base / 4)
 
 
 class DownloadService:
@@ -339,7 +348,7 @@ class DownloadService:
             if retryable and task.attempt_count < retries:
                 task.status = TaskStatus.PENDING.value
                 task.next_attempt_at = utcnow() + timedelta(
-                    seconds=min(60, 2**task.attempt_count)
+                    seconds=retry_delay(task.attempt_count)
                 )
             else:
                 task.status = TaskStatus.FAILED.value
