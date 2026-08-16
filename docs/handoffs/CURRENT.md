@@ -2,7 +2,7 @@
 
 - Updated: 2026-08-16
 - Branch: `main`
-- Baseline commit: `290d820`
+- Baseline commit: `84b596b`
 - Active phase: Phase 4 — download worker and safe storage
 
 ## Completed
@@ -14,14 +14,15 @@
 - Current/legacy login endpoint detection, one-shot password POST, same-mirror `/my.php` validation, HKDF-derived Fernet cookie encryption, single-account credential persistence and administrator-protected Kmoe login/status APIs committed as `4729fe4`.
 - Sanitized search/detail fixtures, escape-aware JavaScript call parsing, trusted detail-path normalization, safe description text extraction, credential-backed search/detail APIs, and strict authenticated `/data_book.php` flow committed as `36106cf`.
 - Subscription create/list/edit/pause/resume/delete APIs, explicit pending-task cancellation choice, persistent check batches, atomic SQLite task claiming, APScheduler six-hour checks, adjustable interval, manual checks, idempotent discovery and restart recovery committed as `290d820`.
+- Strict `/getdownurl.php` format/line mapping, quota/error parsing, HTTPS/public-host validation, cross-platform path sanitization, `.part` integrity checks and atomic no-clobber final promotion committed as `84b596b`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `290d820`: 28 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_04`, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
+- Verification at `84b596b`: 32 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_04`, model/migration drift check, Python compilation and `git diff --check` passed. Compose syntax previously passed at `e980ec8`.
 
 ## Active work
 
 - Phase 2 target is complete: administrator can connect Kmoe, search, and fetch standardized comic details through mock-tested API contracts.
 - Phase 3 target is complete: subscription management and persistent scheduled/manual checks are available through administrator APIs.
-- Phase 4 has not started: download URL resolution, storage validation, worker lifecycle and download APIs remain.
+- Phase 4 is active: URL resolution and safe storage primitives are complete; worker lifecycle, transfer/resume, retry/cancel/recovery and download APIs remain.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -45,8 +46,8 @@
 
 ## Next actions
 
-1. Implement strict `/getdownurl.php` request/response parsing for EPUB/MOBI and line 0/1 without persisting signed URLs.
-2. Add safe download-root path construction and `.part` to atomic-final-file promotion with length/non-empty checks.
-3. Implement atomic pending-task claiming, bounded retry/backoff, cancellation and startup recovery.
+1. Add a fixed `library_dir` to Comic and retry/cancel timestamps to DownloadTask through a migration.
+2. Implement atomic pending-task claiming, streaming transfer to `.part`, strict redirect/length checks and final promotion.
+3. Add bounded retry/backoff, cooperative cancellation, authentication/quota pausing and startup recovery.
 4. Expose task list/filter/cancel/retry APIs and a throttled event stream or polling-compatible status contract.
 5. Then build the React management UI over the completed APIs.
