@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -10,6 +11,9 @@ from fastapi.testclient import TestClient
 from kmoe_subscriptions.config import Settings
 from kmoe_subscriptions.kmoe.client import KmoeClient
 from kmoe_subscriptions.main import create_app
+from kmoe_subscriptions.api.downloads import DownloadTaskView, serialize_event
+from kmoe_subscriptions.kmoe.schemas import ContentType, DownloadFormat
+from kmoe_subscriptions.models import TaskStatus
 
 
 ADMIN_PASSWORD = "correct horse battery staple"
@@ -32,6 +36,37 @@ class NoopDownloadService:
 
 def fixture_text(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def test_download_event_never_exposes_temporary_or_signed_urls() -> None:
+    event = serialize_event(
+        [
+            DownloadTaskView(
+                id=1,
+                comic_id=1,
+                comic_remote_id="50076",
+                comic_title="Comic",
+                item_remote_id="v1",
+                item_name="Volume 1",
+                content_type=ContentType.VOLUME,
+                download_format=DownloadFormat.EPUB,
+                status=TaskStatus.RUNNING,
+                attempt_count=1,
+                progress_bytes=10,
+                total_bytes=100,
+                final_path="/downloads/Comic/Volume 1.epub",
+                error_code=None,
+                error_message=None,
+                next_attempt_at=None,
+                created_at=datetime(2026, 8, 17),
+                started_at=None,
+                completed_at=None,
+            )
+        ]
+    )
+    assert event.startswith("event: downloads\ndata: ")
+    assert "temporary" not in event
+    assert "signature" not in event
 
 
 def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
@@ -81,6 +116,7 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
     )
     app.state.download_service_factory = NoopDownloadService
     with TestClient(app) as web:
+        assert web.get("/api/downloads/events").status_code == 401
         setup = web.post("/api/auth/setup", json={"password": ADMIN_PASSWORD})
         csrf = setup.json()["csrf_token"]
         headers = {"X-CSRF-Token": csrf}

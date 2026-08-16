@@ -46,6 +46,11 @@ def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> Non
                     content_type=ContentType.VOLUME,
                     name="Volume 1",
                 ),
+                RemoteItem(
+                    remote_id="v102",
+                    content_type=ContentType.VOLUME,
+                    name="Volume 2",
+                ),
             ),
         )
         async with database.sessions.begin() as session:
@@ -72,6 +77,10 @@ def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> Non
             task = await session.get(DownloadTask, 1)
             assert task is not None
             task.status = TaskStatus.RUNNING.value
+            cancelled = await session.get(DownloadTask, 2)
+            assert cancelled is not None
+            cancelled.status = TaskStatus.RUNNING.value
+            cancelled.cancel_requested = True
         paths = download_paths(
             settings.download_dir,
             library_dir="Worker comic [50076]",
@@ -139,6 +148,9 @@ def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> Non
             assert task.attempt_count == 1
             assert task.temporary_path is not None
             assert task.final_path == str(paths.final)
+            cancelled = await session.get(DownloadTask, 2)
+            assert cancelled is not None
+            assert cancelled.status == TaskStatus.CANCELLED.value
         assert paths.final.read_bytes() == b"abcdef"
         assert not paths.temporary.exists()
         await database.engine.dispose()

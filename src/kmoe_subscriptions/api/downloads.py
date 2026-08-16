@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime
 from typing import Annotated
 
@@ -7,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from .auth import get_db, require_csrf, require_same_origin, require_session
 from ..kmoe.schemas import ContentType, DownloadFormat
@@ -81,6 +84,23 @@ async def get_task_row(
     return row[0], row[1], row[2]
 
 
+async def load_task_views(db: AsyncSession) -> list[DownloadTaskView]:
+    rows = (
+        await db.execute(
+            select(DownloadTask, RemoteItemRecord, Comic)
+            .join(RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id)
+            .join(Comic, Comic.id == RemoteItemRecord.comic_id)
+            .order_by(DownloadTask.id.desc())
+        )
+    ).all()
+    return [task_view(task, item, comic) for task, item, comic in rows]
+
+
+def serialize_event(tasks: list[DownloadTaskView]) -> str:
+    payload = [task.model_dump(mode="json") for task in tasks]
+    return f"event: downloads\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 @router.get(
     "",
     response_model=list[DownloadTaskView],
@@ -103,6 +123,30 @@ async def list_downloads(
         statement = statement.where(Comic.id == comic_id)
     rows = (await db.execute(statement)).all()
     return [task_view(task, item, comic) for task, item, comic in rows]
+
+
+@router.get("/events", dependencies=[Depends(require_session)])
+async def download_events(request: Request) -> StreamingResponse:
+    async def stream():
+        previous: str | None = None
+        while not await request.is_disconnected():
+            async with request.app.state.database.sessions() as session:
+                event = serialize_event(await load_task_views(session))
+            if event != previous:
+                yield event
+                previous = event
+            else:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get(
