@@ -1,9 +1,9 @@
 # Current implementation handoff
 
-- Updated: 2026-08-16
+- Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: `88721a4`
-- Active phase: Phase 4 — download worker and safe storage
+- Baseline commit: `9451ec8`
+- Active phase: Phase 5 — React management interface
 
 ## Completed
 
@@ -17,14 +17,16 @@
 - Strict `/getdownurl.php` format/line mapping, quota/error parsing, HTTPS/public-host validation, cross-platform path sanitization, `.part` integrity checks and atomic no-clobber final promotion committed as `84b596b`.
 - Stable per-comic library directories plus persistent task retry, cancellation, start and completion fields with migration `20260816_05` committed as `0911a93`.
 - Atomic download claiming, startup recovery, validated resume/redirect transfer, throttled progress writes, safe failure mapping, bounded retry state, cooperative cancellation, task polling/filter/cancel/retry APIs and immediate worker wakeups committed as `88721a4`.
+- Authenticated SSE download snapshots and keepalives committed as `52879e3`; bounded exponential retry jitter committed as `9451ec8`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `88721a4`: 33 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_05`, model/migration drift, compilation and `git diff --check` passed.
+- Verification at `9451ec8`: 35 tests passed with `.venv/bin/python -m pytest -q -s`; migration chain through `20260816_05`, model/migration drift, compilation and `git diff --check` passed.
 
 ## Active work
 
 - Phase 2 target is complete: administrator can connect Kmoe, search, and fetch standardized comic details through mock-tested API contracts.
 - Phase 3 target is complete: subscription management and persistent scheduled/manual checks are available through administrator APIs.
-- Phase 4 is nearly complete: worker lifecycle, transfer/resume, retry/cancel/recovery and polling APIs are implemented; SSE and focused retry/cancellation fault tests remain.
+- Phase 4 target is complete: persistent worker lifecycle, safe transfer/resume, bounded jittered retries, cooperative cancellation, restart recovery, polling/filter/mutation APIs and authenticated SSE status snapshots are implemented and tested.
+- Phase 5 is active: the React management interface has not been scaffolded yet.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -48,8 +50,6 @@
 
 ## Next actions
 
-1. Add the throttled download event stream and focused automatic-retry/cooperative-cancellation tests.
-2. Run the complete Phase 4 recovery, length mismatch, cancellation and no-duplicate-final-file suite.
-3. Build the React management UI for setup/login, Kmoe login, search/detail, subscriptions, downloads and settings.
-4. Add the frontend production build to the Python/Docker image and cover the main flow with Playwright.
-5. Finish operations documentation, CI and release acceptance checks.
+1. Build the React management UI for setup/login, Kmoe login, search/detail, subscriptions, downloads and settings.
+2. Add the frontend production build to the Python/Docker image and cover the main flow with Playwright.
+3. Finish operations documentation, CI and release acceptance checks.
