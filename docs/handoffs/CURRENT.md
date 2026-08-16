@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: `8aad3a5`
-- Active phase: Phase 6 — operations and release acceptance
+- Baseline commit: `5dfe213`
+- Active phase: release candidate — real-account acceptance
 
 ## Completed
 
@@ -20,8 +20,9 @@
 - Authenticated SSE download snapshots and keepalives committed as `52879e3`; bounded exponential retry jitter committed as `9451ec8`.
 - Responsive React/TypeScript management UI for setup/login, dashboard, Kmoe login, search/detail, subscription management, SSE downloads and settings; full runtime settings and administrator password change APIs; FastAPI static hosting; Playwright main-flow coverage; and Docker multi-stage frontend build committed as `8aad3a5`.
 - Installed-wheel migration discovery now prefers the runtime project root, fixing Docker startup while retaining source-tree tests.
+- Migration-aware SQLite backups, atomic backup verification, NAS/Linux operations and recovery documentation, sensitive-file and unified release checks, GitHub Actions CI, Docker dependency-layer caching and the ten-scenario acceptance matrix committed as `5dfe213`.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `8aad3a5`: 36 Python tests passed with `.venv/bin/python -m pytest -q -s`; `npm --prefix frontend run build` and the Chromium Playwright main flow passed; `docker build -t kmoe-subscriptions:phase5 .` passed; the built container returned `{"status":"ok"}` from `/health/ready` and served the hashed React assets from `/`.
+- Verification at `5dfe213`: 37 Python tests, Vite production build, Chromium Playwright main flow, Compose validation, tracked-file sensitive scan and final Docker build passed. The release-check container ran as UID/GID `10001`, returned `{"status":"ok"}` from `/health/ready`, and served hashed React assets from `/`.
 
 ## Active work
 
@@ -29,7 +30,8 @@
 - Phase 3 target is complete: subscription management and persistent scheduled/manual checks are available through administrator APIs.
 - Phase 4 target is complete: persistent worker lifecycle, safe transfer/resume, bounded jittered retries, cooperative cancellation, restart recovery, polling/filter/mutation APIs and authenticated SSE status snapshots are implemented and tested.
 - Phase 5 target is complete: all first-release management flows are available in the responsive Web UI, download status uses SSE, and production assets are served by FastAPI.
-- Phase 6 is active: operations documentation, CI, backup-before-risky-migration behavior and the final ten-scenario release checklist remain.
+- Phase 6 implementation is complete: migration safeguards, operations documentation, local release check, CI configuration and automated ten-scenario evidence are present.
+- Credential-dependent real-site acceptance remains intentionally manual; never place real passwords, cookies or signed URLs in tests or handoffs.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -53,7 +55,6 @@
 
 ## Next actions
 
-1. Add database backup-before-risky-migration behavior and focused recovery tests.
-2. Finish NAS/Linux deployment, reverse-proxy HTTPS, backup/restore and upgrade documentation.
-3. Add CI for Python, frontend build/Playwright, Docker and sensitive-data checks.
-4. Execute and record the design document's ten release acceptance scenarios.
+1. Start with `docker compose up -d --build`, open the Web UI, and use the release administrator's Kmoe account.
+2. Complete the unchecked real-site items in `docs/release-checklist.md` with a small, low-risk comic/download.
+3. Record only pass/fail and non-sensitive diagnostics; do not persist credentials or signed URLs.
