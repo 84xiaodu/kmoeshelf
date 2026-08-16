@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      KMOE_APP_SECRET_KEY: ${KMOE_APP_SECRET_KEY:?set KMOE_APP_SECRET_KEY in .env}
+      KMOE_DATABASE_URL: sqlite+aiosqlite:////data/app.db
+      KMOE_DOWNLOAD_DIR: /downloads
+      KMOE_COOKIE_SECURE: ${KMOE_COOKIE_SECURE:-false}
+    volumes:
+      - ./data:/data
+      - ./downloads:/downloads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+

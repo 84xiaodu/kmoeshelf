@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kmoe-subscriptions"
+version = "0.1.0"
+description = "Self-hosted Kmoe manga subscription and download service"
+requires-python = ">=3.12"
+dependencies = [
+  "aiosqlite>=0.20",
+  "alembic>=1.14",
+  "argon2-cffi>=23.1",
+  "fastapi>=0.115",
+  "pydantic-settings>=2.7",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx>=0.28",
+  "pytest>=8.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kmoe_subscriptions"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

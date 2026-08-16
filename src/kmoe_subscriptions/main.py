@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import asyncio
+import tempfile
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+from fastapi import FastAPI, HTTPException, Request
+from sqlalchemy import text
+
+from .api.auth import router as auth_router
+from .config import Settings, get_settings
+from .db import create_database
+
+
+def alembic_config(database_url: str) -> Config:
+    project_root = Path(__file__).resolve().parents[2]
+    config = Config(str(project_root / "alembic.ini"))
+    config.set_main_option("script_location", str(project_root / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
+
+
+async def migrate(database_url: str) -> None:
+    await asyncio.to_thread(command.upgrade, alembic_config(database_url), "head")
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    resolved = settings or get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        resolved.download_dir.mkdir(parents=True, exist_ok=True)
+        await migrate(resolved.database_url)
+        app.state.database = create_database(resolved.database_url)
+        yield
+        await app.state.database.engine.dispose()
+
+    app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
+    app.state.settings = resolved
+    app.include_router(auth_router)
+
+    @app.get("/health/live")
+    async def live() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/health/ready")
+    async def ready(request: Request) -> dict[str, str]:
+        try:
+            async with request.app.state.database.engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+            with tempfile.NamedTemporaryFile(dir=resolved.download_dir):
+                pass
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail="Download directory not writable") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database not ready") from exc
+        return {"status": "ok"}
+
+    return app
