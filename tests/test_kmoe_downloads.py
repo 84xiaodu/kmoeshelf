@@ -6,8 +6,20 @@ import httpx
 import pytest
 
 from kmoe_subscriptions.kmoe.client import KmoeClient
-from kmoe_subscriptions.kmoe.downloads import get_download_info, parse_download_info
-from kmoe_subscriptions.kmoe.errors import DownloadUrlInvalid, QuotaExhausted
+from kmoe_subscriptions.kmoe.downloads import (
+    TRANSFER_HEADERS,
+    get_download_info,
+    parse_download_info,
+    raise_for_transfer_status,
+)
+from kmoe_subscriptions.kmoe.errors import (
+    DownloadForbidden,
+    DownloadServerError,
+    DownloadUrlExpired,
+    QuotaExhausted,
+    RateLimited,
+    DownloadUrlInvalid,
+)
 from kmoe_subscriptions.kmoe.schemas import DownloadFormat
 
 
@@ -59,3 +71,22 @@ def test_maps_quota_and_rejects_unsafe_download_hosts() -> None:
         parse_download_info(
             {"code": 200, "url": "http://cdn.example.invalid/book.epub"}
         )
+
+
+def test_uses_explicit_kmoe_transfer_identity() -> None:
+    assert TRANSFER_HEADERS["X-Km-From"] == "kb_http_down"
+    assert "python-httpx" not in TRANSFER_HEADERS["User-Agent"]
+    assert "KmoeSubscriptions" in TRANSFER_HEADERS["User-Agent"]
+
+
+def test_maps_safe_transfer_status_errors() -> None:
+    with pytest.raises(DownloadForbidden, match=r"cdn\.example\.invalid.*403"):
+        raise_for_transfer_status(403, host="cdn.example.invalid")
+    with pytest.raises(DownloadUrlExpired):
+        raise_for_transfer_status(410, host="cdn.example.invalid")
+    with pytest.raises(RateLimited):
+        raise_for_transfer_status(429, host="cdn.example.invalid")
+    with pytest.raises(DownloadServerError):
+        raise_for_transfer_status(503, host="cdn.example.invalid")
+
+    raise_for_transfer_status(200, host="cdn.example.invalid")

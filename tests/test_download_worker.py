@@ -111,6 +111,8 @@ def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> Non
             )
 
         def transfer_handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["x-km-from"] == "kb_http_down"
+            assert "KmoeSubscriptions" in request.headers["user-agent"]
             assert request.headers["range"] == "bytes=3-"
             return httpx.Response(
                 206,

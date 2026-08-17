@@ -127,7 +127,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.transfer_client_factory = lambda: httpx.AsyncClient(
         follow_redirects=False,
         timeout=httpx.Timeout(60),
-        headers={"X-Km-From": "kb_http_down"},
     )
     app.include_router(auth_router)
     app.include_router(checks_router)

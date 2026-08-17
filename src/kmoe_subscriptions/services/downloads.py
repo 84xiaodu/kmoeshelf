@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import logging
 import random
 import re
 import time
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from sqlalchemy import or_, select, update
@@ -17,8 +18,23 @@ from ..config import Settings
 from ..db import Database
 from ..kmoe.client import KmoeClient
 from ..kmoe.credentials import decrypt_cookies
-from ..kmoe.downloads import get_download_info, validate_download_url
-from ..kmoe.errors import AuthenticationExpired, KmoeError, NetworkError
+from ..kmoe.downloads import (
+    TRANSFER_HEADERS,
+    get_download_info,
+    non_file_response,
+    raise_for_transfer_status,
+    validate_download_url,
+)
+from ..kmoe.errors import (
+    AuthenticationExpired,
+    DownloadConnectTimeout,
+    DownloadRangeInvalid,
+    DownloadTransferError,
+    DownloadUrlExpired,
+    KmoeError,
+    NetworkError,
+    RateLimited,
+)
 from ..kmoe.schemas import ContentType, DownloadFormat
 from ..models import (
     ActivityEvent,
@@ -42,13 +58,10 @@ from ..storage import (
 
 CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 REDIRECTS = {301, 302, 303, 307, 308}
+logger = logging.getLogger(__name__)
 
 
 class DownloadCancelled(Exception):
-    pass
-
-
-class RetryableDownload(Exception):
     pass
 
 
@@ -206,8 +219,23 @@ class DownloadService:
             await self._complete(task_id, size, str(paths.final))
         except DownloadCancelled:
             await self._cancel(task_id)
-        except (RetryableDownload, NetworkError, httpx.RequestError) as exc:
-            await self._fail(task_id, "network_error", "Temporary download failure", exc, True)
+        except DownloadTransferError as exc:
+            await self._fail(task_id, exc.code, str(exc), exc, exc.retryable)
+        except RateLimited as exc:
+            await self._fail(task_id, exc.code, str(exc), exc, True)
+        except NetworkError as exc:
+            await self._fail(task_id, exc.code, "Kmoe network request failed", exc, True)
+        except httpx.TimeoutException as exc:
+            safe = DownloadConnectTimeout("Download connection timed out")
+            await self._fail(task_id, safe.code, str(safe), exc, True)
+        except httpx.RequestError as exc:
+            await self._fail(
+                task_id,
+                "network_error",
+                f"Download connection failed with {type(exc).__name__}",
+                exc,
+                True,
+            )
         except KmoeError as exc:
             await self._fail(task_id, exc.code, str(exc), exc, False)
         except StorageError as exc:
@@ -232,22 +260,25 @@ class DownloadService:
                 if await self._cancel_requested(task_id):
                     raise DownloadCancelled
                 validate_download_url(current_url)
-                headers = {"Range": f"bytes={existing}-"} if existing else {}
+                host = urlsplit(current_url).hostname or "unknown-host"
+                headers = dict(TRANSFER_HEADERS)
+                if existing:
+                    headers["Range"] = f"bytes={existing}-"
                 async with client.stream("GET", current_url, headers=headers) as response:
                     if response.status_code in REDIRECTS:
                         location = response.headers.get("location")
                         if not location:
-                            raise RetryableDownload("Redirect has no location")
+                            raise DownloadUrlExpired(
+                                f"Download redirect at {host} has no location"
+                            )
                         current_url = urljoin(current_url, location)
                         continue
-                    if response.status_code >= 500:
-                        raise RetryableDownload("Download server failed")
-                    if response.status_code in {401, 403, 404, 408, 410, 429}:
-                        raise RetryableDownload("Download URL expired or throttled")
-                    response.raise_for_status()
+                    if response.status_code == 416 and existing:
+                        temporary.unlink(missing_ok=True)
+                    raise_for_transfer_status(response.status_code, host=host)
                     content_type = response.headers.get("content-type", "").lower()
                     if "text/html" in content_type or "application/json" in content_type:
-                        raise RetryableDownload("Download returned non-file content")
+                        raise non_file_response(host=host)
                     mode = "ab"
                     total: int | None = None
                     if existing and response.status_code == 206:
@@ -255,7 +286,10 @@ class DownloadService:
                             response.headers.get("content-range", "")
                         )
                         if match is None or int(match.group(1)) != existing:
-                            raise RetryableDownload("Resume range does not match")
+                            temporary.unlink(missing_ok=True)
+                            raise DownloadRangeInvalid(
+                                f"Download resume range from {host} does not match"
+                            )
                         total = int(match.group(3))
                     elif response.status_code == 200:
                         existing = 0
@@ -263,7 +297,10 @@ class DownloadService:
                         length = response.headers.get("content-length")
                         total = int(length) if length and length.isdigit() else None
                     else:
-                        raise RetryableDownload("Download range response is invalid")
+                        temporary.unlink(missing_ok=True)
+                        raise DownloadRangeInvalid(
+                            f"Download range response from {host} is invalid"
+                        )
                     written = existing
                     persisted = existing
                     last_update = time.monotonic()
@@ -284,7 +321,7 @@ class DownloadService:
                     if written != persisted:
                         await self._progress(task_id, written, total)
                     return total
-            raise RetryableDownload("Too many download redirects")
+            raise DownloadUrlExpired("Download URL exceeded the redirect limit")
 
     async def _cancel_requested(self, task_id: int) -> bool:
         async with self.database.sessions() as session:
@@ -355,6 +392,15 @@ class DownloadService:
                 task.completed_at = utcnow()
             task.error_code = code
             task.error_message = message
+            if task.status == TaskStatus.FAILED.value:
+                logger.warning(
+                    "download task failed",
+                    extra={
+                        "task_id": task.id,
+                        "error_code": code,
+                        "error_type": type(error).__name__,
+                    },
+                )
             if isinstance(error, AuthenticationExpired):
                 credential = await session.get(KmoeCredential, 1)
                 if credential is not None:

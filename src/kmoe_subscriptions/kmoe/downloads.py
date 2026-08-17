@@ -5,13 +5,28 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
-from .client import KmoeClient
-from .errors import DownloadUrlInvalid, QuotaExhausted, SiteChanged
+from .client import DEFAULT_HEADERS, KmoeClient
+from .errors import (
+    DownloadConnectTimeout,
+    DownloadForbidden,
+    DownloadRangeInvalid,
+    DownloadServerError,
+    DownloadUrlExpired,
+    DownloadUrlInvalid,
+    NonFileResponse,
+    QuotaExhausted,
+    RateLimited,
+    SiteChanged,
+)
 from .schemas import DownloadFormat
 
 
 FORMAT_CODES = {DownloadFormat.MOBI: 1, DownloadFormat.EPUB: 2}
 QUOTA_MARKERS = ("額度不足", "達到下載額度限制")
+TRANSFER_HEADERS = {
+    "User-Agent": DEFAULT_HEADERS["User-Agent"],
+    "X-Km-From": "kb_http_down",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,3 +103,37 @@ def validate_download_url(url: str) -> None:
         return
     if not address.is_global:
         raise DownloadUrlInvalid("Kmoe returned a non-public download address")
+
+
+def raise_for_transfer_status(status: int, *, host: str) -> None:
+    if status < 400:
+        return
+    if status in {401, 404, 410}:
+        raise DownloadUrlExpired(
+            f"Download URL at {host} expired with HTTP {status}"
+        )
+    if status == 403:
+        raise DownloadForbidden(
+            f"Download host {host} rejected the request with HTTP 403"
+        )
+    if status == 408:
+        raise DownloadConnectTimeout(
+            f"Download host {host} timed out with HTTP 408"
+        )
+    if status == 416:
+        raise DownloadRangeInvalid(
+            f"Download host {host} rejected the resume range with HTTP 416"
+        )
+    if status == 429:
+        raise RateLimited(f"Download host {host} rate limited the request")
+    if status >= 500:
+        raise DownloadServerError(
+            f"Download host {host} failed with HTTP {status}"
+        )
+    raise DownloadForbidden(
+        f"Download host {host} rejected the request with HTTP {status}"
+    )
+
+
+def non_file_response(*, host: str) -> NonFileResponse:
+    return NonFileResponse(f"Download host {host} returned non-file content")

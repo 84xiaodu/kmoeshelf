@@ -45,6 +45,38 @@ class DownloadUrlInvalid(KmoeError):
     code = "download_url_invalid"
 
 
+class DownloadTransferError(KmoeError):
+    retryable = False
+
+
+class DownloadUrlExpired(DownloadTransferError):
+    code = "download_url_expired"
+    retryable = True
+
+
+class DownloadForbidden(DownloadTransferError):
+    code = "download_forbidden"
+
+
+class DownloadConnectTimeout(DownloadTransferError):
+    code = "connect_timeout"
+    retryable = True
+
+
+class DownloadServerError(DownloadTransferError):
+    code = "download_server_error"
+    retryable = True
+
+
+class NonFileResponse(DownloadTransferError):
+    code = "non_file_response"
+
+
+class DownloadRangeInvalid(DownloadTransferError):
+    code = "download_range_invalid"
+    retryable = True
+
+
 class MirrorExhausted(NetworkError):
     code = "mirror_unavailable"
 
