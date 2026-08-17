@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: working tree after `7840d2d`
-- Active phase: search-routing fix complete and deployed
+- Baseline commit: working tree after `57f1bed`
+- Active phase: GHCR image publication and Compose pull deployment complete
 
 ## Completed
 
@@ -23,6 +23,9 @@
 - Migration-aware SQLite backups, atomic backup verification, NAS/Linux operations and recovery documentation, sensitive-file and unified release checks, GitHub Actions CI, Docker dependency-layer caching and the ten-scenario acceptance matrix committed as `5dfe213`.
 - Current Kmoe search JavaScript parsing compatibility committed as `0ba0f58`; compatible transfer identity and typed download failures committed as `0be54d6`.
 - The project is licensed under MIT as `Copyright (c) 2026 84xiaodu`; complete MIT notices for the two referenced upstream projects are included in the repository and Python distribution metadata.
+- GHCR publishing design and implementation plan are committed as `d53ed94` and `7a949dd`. Automatic publication and Compose image-pull configuration are committed as `57f1bed`.
+- GitHub Actions run `31992354684` published public `latest` and `sha-57f1bed` images. Anonymous pulls and `docker compose pull` resolved both tags to `sha256:b34cbe6ef857fd8b50c244779e66890fffddaa012dac0a0d10e58009801dc281`.
+- GHCR release verification passed 56 Python tests, Compose validation, sensitive-file scanning, and a complete local Docker multi-stage build.
 - Current search-routing design and implementation plan committed as `1c190dd` and `7840d2d`. The implementation dynamically follows the trusted Kmoe search form instead of the obsolete all-catalog route, safely re-scopes duplicate cookies to the declared mirror, and normalizes the site's zero-page empty result.
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
@@ -58,9 +61,11 @@
 - The host Python is 3.14.6 and Node is 26.3.0.
 - Pytest capture cleanup fails in this desktop environment, so use `-s` when running tests.
 - The in-process `TestClient` currently emits one third-party Starlette deprecation warning; application tests still pass.
+- GitHub Actions CI run `31992354688` passed backend and frontend but its existing security job failed because `scripts/check-sensitive-files.sh` is not executable in the Linux checkout; invoke it through `bash` or restore its executable mode in a follow-up.
 
 ## Next actions
 
 1. Refresh the Web UI and confirm opening one search result's detail page.
 2. Use the Web UI to select a test subdirectory and confirm the completed EPUB is migrated safely.
 3. Complete the remaining unchecked release items; record only non-sensitive pass/fail diagnostics.
+4. Fix the CI security job script invocation or executable mode, then confirm the dependent container job runs.
