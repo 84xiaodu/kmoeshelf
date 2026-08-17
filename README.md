@@ -21,11 +21,12 @@
 cp .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 # 将输出写入 .env 的 KMOE_APP_SECRET_KEY
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
-服务默认监听 <http://localhost:8000>。首次打开会要求创建管理员，之后在“设置”中登录 Kmoe。
+Compose 默认从公开镜像 `ghcr.io/84xiaodu/kmoeshelf:latest` 拉取，无需登录 GHCR。服务默认监听 <http://localhost:8000>。首次打开会要求创建管理员，之后在“设置”中登录 Kmoe。
 
 数据保存在 `./data`。漫画文件默认保存在 `./downloads`，也可在 `.env` 用 `KMOE_STORAGE_HOST_ROOT` 指向 NAS 或其他宿主机目录；容器统一挂载为 `/storage`，之后可在 Web“设置”中自由选择其下的相对目录。务必保留 `.env` 中的原密钥；更换密钥会使现有会话和加密 Kmoe Cookie 失效。详细升级、HTTPS、备份和恢复步骤见 [运维手册](docs/operations.md)。
 
@@ -50,6 +51,14 @@ npm --prefix frontend run dev
 ```
 
 打开 Vite 显示的地址。生产构建由 Docker 多阶段构建复制到 Python 包，并由 FastAPI 同源提供。
+
+需要验证 Dockerfile 或开发本地镜像时，显式构建而不改变生产 Compose：
+
+```bash
+docker build -t kmoeshelf:local .
+```
+
+部署时可通过 `KMOE_IMAGE` 固定到不可变的提交标签，例如 `ghcr.io/84xiaodu/kmoeshelf:sha-1a2b3c4`；恢复跟随最新版时删除该变量并重新拉取。
 
 ## 测试
 

@@ -20,11 +20,12 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ```bash
 mkdir -p data downloads
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
-浏览器打开 `http://<主机地址>:8000`，先创建管理员，再到“设置”登录 Kmoe。不要把 `.env` 提交到 Git 或发送给他人。
+Compose 默认拉取公开镜像 `ghcr.io/84xiaodu/kmoeshelf:latest`，无需登录 GHCR。浏览器打开 `http://<主机地址>:8000`，先创建管理员，再到“设置”登录 Kmoe。不要把 `.env` 提交到 Git 或发送给他人。
 
 ## 2. 数据与密钥
 
@@ -70,11 +71,20 @@ docker compose restart app
 ```bash
 docker compose stop app
 tar -czf "kmoe-backup-$(date +%Y%m%d-%H%M%S).tar.gz" data downloads .env
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose logs --tail=200 app
 ```
 
 升级后检查 `/health/ready`、管理界面、订阅数量与最近任务。若新版本包含迁移，`data/backups/` 中应出现 `app-before-<UTC时间>.db`。
+
+默认的 `latest` 会跟随 `main` 最新发布。需要固定版本或回滚时，在 `.env` 设置已验证的提交标签：
+
+```dotenv
+KMOE_IMAGE=ghcr.io/84xiaodu/kmoeshelf:sha-1a2b3c4
+```
+
+然后执行 `docker compose pull && docker compose up -d`。恢复跟随最新版时删除 `KMOE_IMAGE`，再次拉取并启动。提交 SHA 标签不可变，适合把应用镜像与数据库备份对应起来。
 
 不要在容器运行期间直接复制 `app.db` 作为唯一备份；SQLite WAL 状态可能让单文件副本不一致。应停止容器，或使用应用自动生成的 SQLite 备份。
 
@@ -143,6 +153,11 @@ location / {
 ### 升级后无法启动
 
 不要反复删除数据库。保留日志、当前 `app.db` 和最近的 `data/backups/app-before-*.db`。若确认要回滚，停止容器后同时回滚应用镜像与数据库备份。
+
+
+### GHCR 镜像拉取失败
+
+公开镜像不需要 `docker login`。先确认镜像名为 `ghcr.io/84xiaodu/kmoeshelf`，再运行 `docker compose pull` 查看具体错误。若固定了 `KMOE_IMAGE`，确认对应 `sha-<提交号>` 标签已经由发布工作流生成；删除该变量可恢复使用 `latest`。
 
 ## 8. 安全检查
 
