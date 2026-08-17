@@ -71,3 +71,9 @@ npx --prefix frontend playwright install --with-deps chromium
 - [设计规格](docs/superpowers/specs/2026-08-16-kmoe-subscription-service-design.md)
 - [实施计划](docs/superpowers/plans/2026-08-16-kmoe-subscription-service-implementation.md)
 - [发布验收清单](docs/release-checklist.md)
+
+## 许可证
+
+本项目由 84xiaodu 以 [MIT License](LICENSE) 发布。参考项目及可能采用的第三方材料按各自许可证授权，完整归属与许可文本见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+本项目许可证不涵盖 Kmoe 服务、相关商标、漫画内容或用户下载的文件；这些材料仍受各自权利人的条款及适用法律约束。

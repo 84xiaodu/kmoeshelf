@@ -12,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY pyproject.toml alembic.ini ./
+COPY pyproject.toml alembic.ini LICENSE THIRD_PARTY_NOTICES.md ./
 RUN mkdir -p src/kmoe_subscriptions \
     && touch src/kmoe_subscriptions/__init__.py \
     && pip install --no-cache-dir . \

@@ -22,6 +22,7 @@
 - Installed-wheel migration discovery now prefers the runtime project root, fixing Docker startup while retaining source-tree tests.
 - Migration-aware SQLite backups, atomic backup verification, NAS/Linux operations and recovery documentation, sensitive-file and unified release checks, GitHub Actions CI, Docker dependency-layer caching and the ten-scenario acceptance matrix committed as `5dfe213`.
 - Current Kmoe search JavaScript parsing compatibility committed as `0ba0f58`; compatible transfer identity and typed download failures committed as `0be54d6`.
+- The project is licensed under MIT as `Copyright (c) 2026 84xiaodu`; complete MIT notices for the two referenced upstream projects are included in the repository and Python distribution metadata.
 - Current search-routing design and implementation plan committed as `1c190dd` and `7840d2d`. The implementation dynamically follows the trusted Kmoe search form instead of the obsolete all-catalog route, safely re-scopes duplicate cookies to the declared mirror, and normalizes the site's zero-page empty result.
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
@@ -50,6 +51,7 @@
 - Current detail volume data comes from `/data_book.php?h=...`; the unauthenticated HTTP-200 empty sentinel is an authentication failure, never a valid baseline.
 - Use ebook pages at `voldata[7]`; preserve MOBI/EPUB catalog sizes separately from indexes 9 and 11.
 - Resolve downloads through `/getdownurl.php`; do not construct `/dl/` URLs directly.
+- Publish project-owned code and documentation under MIT while excluding Kmoe services, trademarks and downloaded content; retain full upstream MIT notices in distributions.
 
 ## Known environment detail
 
