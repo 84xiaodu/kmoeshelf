@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: working tree after `0be54d6`
-- Active phase: storage/policy release candidate — Docker smoke test
+- Baseline commit: working tree after `7840d2d`
+- Active phase: search-routing fix complete and deployed
 
 ## Completed
 
@@ -22,10 +22,11 @@
 - Installed-wheel migration discovery now prefers the runtime project root, fixing Docker startup while retaining source-tree tests.
 - Migration-aware SQLite backups, atomic backup verification, NAS/Linux operations and recovery documentation, sensitive-file and unified release checks, GitHub Actions CI, Docker dependency-layer caching and the ten-scenario acceptance matrix committed as `5dfe213`.
 - Current Kmoe search JavaScript parsing compatibility committed as `0ba0f58`; compatible transfer identity and typed download failures committed as `0be54d6`.
+- Current search-routing design and implementation plan committed as `1c190dd` and `7840d2d`. The implementation dynamically follows the trusted Kmoe search form instead of the obsolete all-catalog route, safely re-scopes duplicate cookies to the declared mirror, and normalizes the site's zero-page empty result.
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Current verification: 46 Python tests, Vite production build, and the expanded Chromium flow pass. Docker rebuild and upgraded-container smoke testing are the next step.
+- Current verification: the unified release check passed 56 Python tests, Vite production build, Chromium main flow, Compose validation and sensitive-file scanning. The rebuilt container returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
 
 ## Active work
 
@@ -34,7 +35,7 @@
 - Phase 4 target is complete: persistent worker lifecycle, safe transfer/resume, bounded jittered retries, cooperative cancellation, restart recovery, polling/filter/mutation APIs and authenticated SSE status snapshots are implemented and tested.
 - Phase 5 target is complete: all first-release management flows are available in the responsive Web UI, download status uses SSE, and production assets are served by FastAPI.
 - Phase 6 implementation is complete: migration safeguards, operations documentation, local release check, CI configuration and automated ten-scenario evidence are present.
-- Credential-dependent search and one small live EPUB download have passed; remaining storage-migration acceptance stays operator-visible and must not record credentials, cookies or signed URLs.
+- Credential-dependent current-form search and one small live EPUB download have passed; remaining storage-migration acceptance stays operator-visible and must not record credentials, cookies or signed URLs.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -58,6 +59,6 @@
 
 ## Next actions
 
-1. Rebuild the Compose service and verify migration `20260817_06`, `/health/ready`, and the React settings page.
+1. Refresh the Web UI and confirm opening one search result's detail page.
 2. Use the Web UI to select a test subdirectory and confirm the completed EPUB is migrated safely.
-3. Complete the remaining unchecked items in `docs/release-checklist.md`; record only non-sensitive pass/fail diagnostics.
+3. Complete the remaining unchecked release items; record only non-sensitive pass/fail diagnostics.

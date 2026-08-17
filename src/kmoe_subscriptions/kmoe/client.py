@@ -77,7 +77,34 @@ class KmoeClient:
             self._client.cookies.set(name, value, domain=domain)
 
     def get_cookies(self) -> dict[str, str]:
-        return dict(self._client.cookies.items())
+        return self._cookies_for_host(self.active_mirror)
+
+    def retarget_mirror(self, mirror: str, *, preserve_cookies: bool = False) -> None:
+        if mirror not in self._mirrors:
+            raise ValueError("Kmoe mirror is not in the configured mirror set")
+        cookies: dict[str, str] | None = None
+        if preserve_cookies:
+            cookies = self._cookies_for_host(self.active_mirror)
+            cookies.update(self._cookies_for_host(mirror))
+        self.active_mirror = mirror
+        if cookies is not None:
+            self.set_cookies(cookies, domain=mirror)
+
+    def _cookies_for_host(self, host: str, path: str = "/") -> dict[str, str]:
+        selected: dict[str, tuple[int, str]] = {}
+        host = host.lower()
+        for cookie in self._client.cookies.jar:
+            domain = cookie.domain.lstrip(".").lower()
+            cookie_path = cookie.path or "/"
+            if domain != host or cookie.is_expired():
+                continue
+            if path != cookie_path and not path.startswith(cookie_path.rstrip("/") + "/"):
+                continue
+            score = len(cookie_path)
+            current = selected.get(cookie.name)
+            if current is None or score >= current[0]:
+                selected[cookie.name] = (score, cookie.value)
+        return {name: value for name, (_, value) in selected.items()}
 
     async def get(
         self, path: str, *, allow_failover: bool = True, **kwargs: object

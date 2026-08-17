@@ -108,6 +108,7 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         )
     )
     volume_calls = 0
+    search_calls: list[tuple[str, str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal volume_calls
@@ -126,12 +127,37 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         if path == "/my.php":
             return httpx.Response(200, request=request, text='<a href="/logout.php">out</a>')
         assert request.headers.get("cookie") == "session=saved-cookie"
-        if path.startswith("/l/"):
+        if path == "/":
+            assert request.url.host == "mox.moe"
             return httpx.Response(
                 200,
                 request=request,
-                text=fixture_text("search_results_current.html"),
+                text=fixture_text("search_form_current.html"),
             )
+        if path == "/list.php":
+            assert request.url.host == "kxx.moe"
+            query = request.url.params["s"]
+            search_calls.append((request.url.host, query, None))
+            if query == "missing-random-query":
+                fixture = "search_empty_zero_pages.html"
+            else:
+                fixture = "search_results_current.html"
+            text = fixture_text(fixture).replace(
+                "https://mox.moe", "https://kxx.moe"
+            )
+            return httpx.Response(
+                200,
+                request=request,
+                text=text,
+            )
+        if path == "/l/示例,all,all,sortpoint,all,all,none/2.htm":
+            assert request.url.host == "kxx.moe"
+            assert not request.url.params
+            search_calls.append((request.url.host, "示例", "2"))
+            text = fixture_text("search_results_current.html").replace(
+                "https://mox.moe", "https://kxx.moe"
+            ).replace('var page_now = "01"', 'var page_now = "02"')
+            return httpx.Response(200, request=request, text=text)
         if path == "/c/50076.htm":
             return httpx.Response(
                 200,
@@ -150,7 +176,7 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         raise AssertionError(request.url)
 
     app.state.kmoe_client_factory = lambda: KmoeClient(
-        ("mox.moe",),
+        ("mox.moe", "kxx.moe"),
         rate_limit_delay=0,
         transport=httpx.MockTransport(handler),
     )
@@ -166,6 +192,24 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         search = web.get("/api/kmoe/search", params={"q": "示例", "page": 1})
         assert search.status_code == 200
         assert search.json()["results"][0]["remote_id"] == "50076"
+
+        second_page = web.get(
+            "/api/kmoe/search", params={"q": "示例", "page": 2}
+        )
+        assert second_page.status_code == 200
+        assert second_page.json()["current_page"] == 2
+
+        empty = web.get(
+            "/api/kmoe/search", params={"q": "missing-random-query", "page": 1}
+        )
+        assert empty.status_code == 200
+        assert empty.json()["total_pages"] == 1
+        assert empty.json()["results"] == []
+        assert search_calls == [
+            ("kxx.moe", "示例", None),
+            ("kxx.moe", "示例", "2"),
+            ("kxx.moe", "missing-random-query", None),
+        ]
 
         details = web.get("/api/kmoe/comics/50076")
         assert details.status_code == 200

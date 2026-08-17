@@ -54,6 +54,13 @@ class DetailPage:
     data_hash: str
 
 
+@dataclass(frozen=True, slots=True)
+class SearchTarget:
+    host: str
+    path: str = "/list.php"
+    query_field: str = "s"
+
+
 class _TextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -61,6 +68,37 @@ class _TextParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         self.parts.append(data)
+
+
+class _SearchFormParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.forms: list[tuple[str, str, frozenset[str]]] = []
+        self._action: str | None = None
+        self._method = "get"
+        self._names: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {name.lower(): value or "" for name, value in attrs}
+        if tag == "form":
+            if self._action is not None:
+                raise SiteChanged("Search page has nested search forms")
+            self._action = attributes.get("action", "")
+            self._method = attributes.get("method", "get").strip().lower()
+            self._names = set()
+        elif self._action is not None and tag in {"input", "select"}:
+            name = attributes.get("name", "").strip()
+            if name:
+                self._names.add(name)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form" and self._action is not None:
+            self.forms.append(
+                (self._action, self._method, frozenset(self._names))
+            )
+            self._action = None
+            self._method = "get"
+            self._names = set()
 
 
 class _DetailParser(HTMLParser):
@@ -154,7 +192,11 @@ def parse_search_results(
         if len(arguments) < 3:
             raise SiteChanged("Search pagination call is too short")
         total_pages = _integer(arguments[2], "total_pages")
-        if total_pages < 1:
+        if total_pages == 0:
+            if result_calls or requested_page != 1 or current_page != 1:
+                raise SiteChanged("Search total pages do not match an empty result")
+            total_pages = 1
+        elif total_pages < 1:
             raise SiteChanged("Search total pages must be positive")
     if current_page != requested_page or current_page > total_pages:
         raise SiteChanged("Search pagination does not match the request")
@@ -191,6 +233,44 @@ def parse_search_results(
         total_pages=total_pages,
         results=tuple(summaries),
     )
+
+
+def parse_search_target(
+    page: str,
+    *,
+    origin: str,
+    trusted_hosts: tuple[str, ...],
+) -> SearchTarget:
+    document = _SearchFormParser()
+    document.feed(page)
+    trusted = {host.lower() for host in trusted_hosts}
+    targets: set[SearchTarget] = set()
+    for action, method, names in document.forms:
+        if method != "get" or "s" not in names:
+            continue
+        try:
+            parsed = urlsplit(urljoin(origin, html.unescape(action.strip())))
+            port = parsed.port
+        except ValueError:
+            continue
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "https"
+            or host not in trusted
+            or parsed.username is not None
+            or parsed.password is not None
+            or port is not None
+            or parsed.path != "/list.php"
+            or parsed.query
+            or parsed.fragment
+        ):
+            continue
+        targets.add(SearchTarget(host=host))
+    if not targets:
+        raise SiteChanged("Search page has no trusted search form")
+    if len(targets) != 1:
+        raise SiteChanged("Search page has conflicting search form targets")
+    return targets.pop()
 
 
 def parse_detail_page(page: str, *, detail_path: str, origin: str) -> DetailPage:

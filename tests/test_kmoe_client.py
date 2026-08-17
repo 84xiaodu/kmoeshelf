@@ -26,6 +26,70 @@ def test_rejects_mirror_paths() -> None:
         KmoeClient(("example.com/path",))
 
 
+def test_retargets_session_only_to_configured_mirror() -> None:
+    seen: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.host, request.headers.get("cookie")))
+        return httpx.Response(200, request=request, text="ok")
+
+    async def run() -> None:
+        async with KmoeClient(
+            ("mox.moe", "kxx.moe"),
+            rate_limit_delay=0,
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            client.set_cookies({"session": "saved-cookie"}, domain="mox.moe")
+            client.retarget_mirror("kxx.moe", preserve_cookies=True)
+            await client.get("/list.php", allow_failover=False)
+            with pytest.raises(ValueError, match="configured"):
+                client.retarget_mirror("attacker.example", preserve_cookies=True)
+            assert client.active_mirror == "kxx.moe"
+
+    asyncio.run(run())
+    assert seen == [("kxx.moe", "session=saved-cookie")]
+
+
+def test_retarget_prefers_target_scoped_duplicate_cookie() -> None:
+    final_cookie = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal final_cookie
+        if request.url.host == "mox.moe":
+            return httpx.Response(
+                302,
+                request=request,
+                headers={"Location": "https://kxx.moe/landing"},
+            )
+        if request.url.path == "/landing":
+            return httpx.Response(
+                200,
+                request=request,
+                headers={"Set-Cookie": "session=target-cookie; Path=/"},
+            )
+        final_cookie = request.headers.get("cookie", "")
+        return httpx.Response(200, request=request, text="ok")
+
+    async def run() -> None:
+        async with KmoeClient(
+            ("mox.moe", "kxx.moe"),
+            rate_limit_delay=0,
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            client.set_cookies(
+                {"session": "source-cookie", "source_only": "preserved"},
+                domain="mox.moe",
+            )
+            await client.get("/", allow_failover=False)
+            client.retarget_mirror("kxx.moe", preserve_cookies=True)
+            await client.get("/list.php", allow_failover=False)
+
+    asyncio.run(run())
+    assert "session=target-cookie" in final_cookie
+    assert "source_only=preserved" in final_cookie
+    assert "source-cookie" not in final_cookie
+
+
 def test_promotes_working_mirror() -> None:
     seen: list[str] = []
 

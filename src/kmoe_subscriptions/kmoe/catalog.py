@@ -3,9 +3,14 @@ from __future__ import annotations
 import re
 from urllib.parse import quote
 
-from .client import KmoeClient
+from .client import DEFAULT_MIRRORS, KmoeClient
 from .errors import SiteChanged
-from .parser import parse_detail_page, parse_search_results, parse_volume_data
+from .parser import (
+    parse_detail_page,
+    parse_search_results,
+    parse_search_target,
+    parse_volume_data,
+)
 from .schemas import ComicDetails, SearchPage
 
 
@@ -18,8 +23,29 @@ async def search_catalog(
     query = query.strip()
     if not query or page < 1:
         raise ValueError("Search query and page are invalid")
-    path = f"/l/{quote(query, safe='')},all,all,sortpoint,all,all,none/{page}.htm"
-    response = await client.get(path)
+    discovery = await client.get("/")
+    target = parse_search_target(
+        discovery.text,
+        origin=f"https://{discovery.url.host}",
+        trusted_hosts=DEFAULT_MIRRORS,
+    )
+    try:
+        client.retarget_mirror(target.host, preserve_cookies=True)
+    except ValueError as exc:
+        raise SiteChanged("Search form target is not a configured mirror") from exc
+    path = target.path
+    params: dict[str, str] | None = {target.query_field: query}
+    if page > 1:
+        encoded = quote(query, safe="")
+        path = (
+            f"/l/{encoded},all,all,sortpoint,all,all,none/{page}.htm"
+        )
+        params = None
+    response = await client.get(
+        path,
+        params=params,
+        allow_failover=False,
+    )
     return parse_search_results(
         response.text,
         query=query,
