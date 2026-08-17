@@ -59,7 +59,7 @@ curl --fail http://127.0.0.1:8000/health/ready
 优雅重启：
 
 ```bash
-docker compose restart app
+docker compose restart kmoeshelf
 ```
 
 停止宽限期为 30 秒。工作器停止领取新任务；遗留运行任务会在下次启动时恢复为等待状态，并从可信 `.part` 文件续传。
@@ -69,7 +69,7 @@ docker compose restart app
 升级前仍建议做一次完整离线备份，即使应用也会在检测到迁移时备份数据库：
 
 ```bash
-docker compose stop app
+docker compose stop kmoeshelf
 tar -czf "kmoe-backup-$(date +%Y%m%d-%H%M%S).tar.gz" data downloads .env
 docker compose pull
 docker compose up -d
@@ -90,7 +90,7 @@ KMOE_IMAGE=ghcr.io/84xiaodu/kmoeshelf:sha-1a2b3c4
 
 ## 5. 恢复
 
-1. 停止服务：`docker compose stop app`。
+1. 停止服务：`docker compose stop kmoeshelf`。
 2. 先把当前 `data/` 和 `downloads/` 改名或另行归档，不要直接覆盖唯一副本。
 3. 恢复 `app.db`、下载目录与创建该数据库时使用的 `.env`。
 4. 确认目录可由 UID `10001` 写入。
@@ -133,7 +133,7 @@ location / {
 
 ### 容器反复退出
 
-先看 `docker compose logs app`。常见原因包括密钥缺失/过短、`data/` 无写权限、迁移前备份失败或下载目录不可写。
+先看 `docker compose logs kmoeshelf`。常见原因包括密钥缺失/过短、`data/` 无写权限、迁移前备份失败或下载目录不可写。
 
 ### Kmoe 显示会话过期
 
