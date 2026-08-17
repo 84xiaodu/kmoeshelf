@@ -1,5 +1,5 @@
 services:
-  app:
+  kmoeshelf:
     image: ${KMOE_IMAGE:-ghcr.io/84xiaodu/kmoeshelf:latest}
     pull_policy: always
     restart: unless-stopped
