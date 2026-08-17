@@ -32,9 +32,13 @@ docker compose ps
 | --- | --- | --- |
 | `./data/app.db` | `/data/app.db` | 管理员、会话、加密 Kmoe Cookie、订阅和任务 |
 | `./data/backups/` | `/data/backups/` | 版本升级前自动生成的 SQLite 备份 |
-| `./downloads/` | `/downloads/` | EPUB、MOBI 与下载中的 `.part` 文件 |
+| `${KMOE_STORAGE_HOST_ROOT:-./downloads}` | `/storage/` | EPUB、MOBI、下载中的 `.part` 文件与 Web 可选子目录 |
 
 `KMOE_APP_SECRET_KEY` 用于派生会话哈希和 Kmoe Cookie 加密密钥。丢失或更换它会使现有管理会话失效，并使已保存的 Kmoe 会话无法解密；恢复部署时必须同时恢复原密钥。
+
+`KMOE_STORAGE_HOST_ROOT` 只在宿主机部署时设置一次。例如 Linux/NAS 可填写 `/volume1/media/manga`，Docker Desktop for Windows 可填写 `D:/Media/Manga`。应用只看到容器内固定的 `/storage`，不能从 Web 访问该挂载点之外的宿主机路径。
+
+在 Web“设置 → 下载根目录”中选择的是 `/storage` 下的相对目录。切换前会显示受管文件数量与容量；确认后，系统暂停领取新下载，等待运行中的下载结束，复制并校验已完成文件，原子切换数据库路径，再清理旧的受管文件。迁移失败时原目录保持有效；若失败发生在清理阶段，新目录保持有效，可在同一页面重试。不要在迁移过程中手工移动这些文件。
 
 自动备份只在数据库迁移版本落后于应用版本时生成。备份先写入隐藏临时文件，经 `PRAGMA quick_check` 验证后原子改名；备份失败会阻止迁移和应用启动。系统不会自动删除旧备份，管理员应按存储策略定期归档或清理。
 
@@ -129,9 +133,12 @@ location / {
 
 - `quota_exhausted`：账号配额不足，不会自动重试。
 - `auth_expired`：重新登录 Kmoe 后手动重试。
-- `disk_full`：释放空间，并检查 `downloads/` 所在文件系统。
+- `disk_full`：释放空间，并检查宿主机存储挂载所在文件系统。
+- `storage_not_writable`：检查 `KMOE_STORAGE_HOST_ROOT` 的 UID `10001` 写权限，或在 Web 中选择可写子目录。
 - `file_conflict`：最终路径存在不一致文件；先人工核对，不要直接删除数据库记录。
-- `network_error` / `mirror_unavailable`：系统按有界指数退避自动重试，也可稍后手动重试。
+- `download_forbidden` / `auth_expired`：在“设置”重新登录 Kmoe 后重试。
+- `download_url_expired`：临时地址已过期，点击重试会重新获取地址。
+- `connect_timeout` / `download_server_error` / `network_error` / `mirror_unavailable`：系统按有界指数退避自动重试，也可稍后手动重试。
 
 ### 升级后无法启动
 

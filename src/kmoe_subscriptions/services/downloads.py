@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 import httpx
-from sqlalchemy import or_, select, update
+from sqlalchemy import exists, or_, select, update
 
 from ..config import Settings
 from ..db import Database
@@ -43,12 +43,15 @@ from ..models import (
     DownloadTask,
     KmoeCredential,
     RemoteItemRecord,
+    StorageMigration,
+    StorageMigrationPhase,
     TaskStatus,
 )
 from ..security import utcnow
 from ..storage import (
     FileConflict,
     StorageError,
+    StorageBoundary,
     download_paths,
     library_directory,
     prepare_download,
@@ -138,9 +141,23 @@ class DownloadService:
     async def _claim(self) -> int | None:
         now = utcnow()
         async with self.database.sessions.begin() as session:
+            migration_active = exists(
+                select(StorageMigration.id).where(
+                    StorageMigration.phase.in_(
+                        (
+                            StorageMigrationPhase.PENDING.value,
+                            StorageMigrationPhase.WAITING_FOR_DOWNLOADS.value,
+                            StorageMigrationPhase.COPYING.value,
+                            StorageMigrationPhase.COMMITTING.value,
+                            StorageMigrationPhase.CLEANING.value,
+                        )
+                    )
+                )
+            )
             candidate = (
                 select(DownloadTask.id)
                 .where(
+                    ~migration_active,
                     DownloadTask.status == TaskStatus.PENDING.value,
                     DownloadTask.cancel_requested.is_(False),
                     or_(
@@ -178,6 +195,7 @@ class DownloadService:
                 item = await session.get(RemoteItemRecord, task.remote_item_id)
                 comic = await session.get(Comic, item.comic_id) if item else None
                 credential = await session.get(KmoeCredential, 1)
+                setting = await session.get(AppSetting, 1)
                 if item is None or comic is None:
                     raise StorageError("Download task source record is missing")
                 if credential is None or credential.status != "active":
@@ -186,7 +204,9 @@ class DownloadService:
                 if comic.library_dir is None:
                     comic.library_dir = library_directory(comic.title, comic.remote_id)
                 paths = download_paths(
-                    self.settings.download_dir,
+                    StorageBoundary(self.settings.download_dir).directory(
+                        setting.download_subpath if setting else "", create=True
+                    ),
                     library_dir=comic.library_dir,
                     content_type=ContentType(item.content_type),
                     item_name=item.name,

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     app_secret_key: SecretStr = Field(min_length=32)
     database_url: str = "sqlite+aiosqlite:////data/app.db"
-    download_dir: Path = Path("/downloads")
+    download_dir: Path = Path("/storage")
     cookie_secure: bool = False
     session_hours: int = Field(default=24 * 14, ge=1, le=24 * 90)
 
@@ -24,4 +24,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
-

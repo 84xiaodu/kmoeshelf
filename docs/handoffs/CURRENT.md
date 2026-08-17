@@ -2,8 +2,8 @@
 
 - Updated: 2026-08-17
 - Branch: `main`
-- Baseline commit: `5dfe213`
-- Active phase: release candidate — real-account acceptance
+- Baseline commit: working tree after `0be54d6`
+- Active phase: storage/policy release candidate — Docker smoke test
 
 ## Completed
 
@@ -21,8 +21,11 @@
 - Responsive React/TypeScript management UI for setup/login, dashboard, Kmoe login, search/detail, subscription management, SSE downloads and settings; full runtime settings and administrator password change APIs; FastAPI static hosting; Playwright main-flow coverage; and Docker multi-stage frontend build committed as `8aad3a5`.
 - Installed-wheel migration discovery now prefers the runtime project root, fixing Docker startup while retaining source-tree tests.
 - Migration-aware SQLite backups, atomic backup verification, NAS/Linux operations and recovery documentation, sensitive-file and unified release checks, GitHub Actions CI, Docker dependency-layer caching and the ten-scenario acceptance matrix committed as `5dfe213`.
+- Current Kmoe search JavaScript parsing compatibility committed as `0ba0f58`; compatible transfer identity and typed download failures committed as `0be54d6`.
+- Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
+- The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Verification at `5dfe213`: 37 Python tests, Vite production build, Chromium Playwright main flow, Compose validation, tracked-file sensitive scan and final Docker build passed. The release-check container ran as UID/GID `10001`, returned `{"status":"ok"}` from `/health/ready`, and served hashed React assets from `/`.
+- Current verification: 46 Python tests, Vite production build, and the expanded Chromium flow pass. Docker rebuild and upgraded-container smoke testing are the next step.
 
 ## Active work
 
@@ -31,7 +34,7 @@
 - Phase 4 target is complete: persistent worker lifecycle, safe transfer/resume, bounded jittered retries, cooperative cancellation, restart recovery, polling/filter/mutation APIs and authenticated SSE status snapshots are implemented and tested.
 - Phase 5 target is complete: all first-release management flows are available in the responsive Web UI, download status uses SSE, and production assets are served by FastAPI.
 - Phase 6 implementation is complete: migration safeguards, operations documentation, local release check, CI configuration and automated ten-scenario evidence are present.
-- Credential-dependent real-site acceptance remains intentionally manual; never place real passwords, cookies or signed URLs in tests or handoffs.
+- Credential-dependent search and one small live EPUB download have passed; remaining storage-migration acceptance stays operator-visible and must not record credentials, cookies or signed URLs.
 - No subagent currently owns application files.
 
 ## Accepted decisions
@@ -55,6 +58,6 @@
 
 ## Next actions
 
-1. Start with `docker compose up -d --build`, open the Web UI, and use the release administrator's Kmoe account.
-2. Complete the unchecked real-site items in `docs/release-checklist.md` with a small, low-risk comic/download.
-3. Record only pass/fail and non-sensitive diagnostics; do not persist credentials or signed URLs.
+1. Rebuild the Compose service and verify migration `20260817_06`, `/health/ready`, and the React settings page.
+2. Use the Web UI to select a test subdirectory and confirm the completed EPUB is migrated safely.
+3. Complete the remaining unchecked items in `docs/release-checklist.md`; record only non-sensitive pass/fail diagnostics.

@@ -161,14 +161,32 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
         assert duplicate.status_code == 409
         assert len(web.get("/api/subscriptions").json()) == 1
 
+        preview = web.post(
+            f"/api/subscriptions/{subscription_id}/policy-preview",
+            json={
+                "content_types": ["extra", "serial"],
+                "download_format": "mobi",
+                "initialization_strategy": "backfill",
+            },
+            headers=headers,
+        )
+        assert preview.status_code == 200
+        assert preview.json()["created"] == 2
+
         edited = web.patch(
             f"/api/subscriptions/{subscription_id}",
-            json={"content_types": ["extra", "serial"], "download_format": "mobi"},
+            json={
+                "content_types": ["extra", "serial"],
+                "download_format": "mobi",
+                "initialization_strategy": "backfill",
+            },
             headers=headers,
         )
         assert edited.status_code == 200
         assert edited.json()["content_types"] == ["extra", "serial"]
         assert edited.json()["download_format"] == "mobi"
+        assert edited.json()["initialization_strategy"] == "backfill"
+        assert edited.json()["reconciliation"]["created"] == 2
         assert web.post(
             f"/api/subscriptions/{subscription_id}/pause", headers=headers
         ).json()["enabled"] is False
@@ -192,4 +210,8 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
         tasks = connection.execute(
             "SELECT download_format, status FROM download_tasks"
         ).fetchall()
-    assert tasks == [("epub", "cancelled")]
+    assert tasks == [
+        ("epub", "cancelled"),
+        ("mobi", "cancelled"),
+        ("mobi", "cancelled"),
+    ]

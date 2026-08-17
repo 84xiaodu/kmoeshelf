@@ -1,6 +1,17 @@
 export type ContentType = "volume" | "extra" | "serial";
 export type DownloadFormat = "epub" | "mobi";
+export type InitializationStrategy = "backfill" | "future_only";
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type StorageMigrationPhase = "pending" | "waiting_for_downloads" | "copying" | "committing" | "cleaning" | "completed" | "failed";
+
+export interface PolicyImpact {
+  created: number;
+  converted: number;
+  reused: number;
+  cancelled: number;
+  retained_running: number;
+  retained_completed: number;
+}
 
 export interface AuthStatus {
   setup_required: boolean;
@@ -60,12 +71,13 @@ export interface Subscription {
   enabled: boolean;
   content_types: ContentType[];
   download_format: DownloadFormat;
-  initialization_strategy: "backfill" | "future_only";
+  initialization_strategy: InitializationStrategy;
   last_attempt_at: string | null;
   last_success_at: string | null;
   next_check_at: string | null;
   last_error_code: string | null;
   last_error_message: string | null;
+  reconciliation?: PolicyImpact | null;
 }
 
 export interface DownloadTask {
@@ -101,4 +113,42 @@ export interface CheckEnqueue {
   batch_id: number;
   queued_count: number;
   created: boolean;
+}
+
+export interface StorageMigration {
+  id: number;
+  source_subpath: string;
+  target_subpath: string;
+  phase: StorageMigrationPhase;
+  failed_phase: StorageMigrationPhase | null;
+  total_files: number;
+  processed_files: number;
+  total_bytes: number;
+  processed_bytes: number;
+  current_relative_path: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface StorageStatus {
+  mounted_root: string;
+  active_subpath: string;
+  effective_path: string;
+  writable: boolean;
+  migration: StorageMigration | null;
+}
+
+export interface StoragePreview {
+  source_subpath: string;
+  target_subpath: string;
+  total_files: number;
+  total_bytes: number;
+}
+
+export interface DirectoryListing {
+  path: string;
+  directories: string[];
 }

@@ -23,8 +23,8 @@ COPY --from=frontend /frontend/dist src/kmoe_subscriptions/static
 RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
 RUN useradd --create-home --uid 10001 app \
-    && mkdir -p /data /downloads \
-    && chown -R app:app /data /downloads
+    && mkdir -p /data /storage \
+    && chown -R app:app /data /storage
 USER app
 
 EXPOSE 8000

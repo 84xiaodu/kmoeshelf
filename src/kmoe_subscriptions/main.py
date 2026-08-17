@@ -20,12 +20,14 @@ from .api.checks import router as checks_router
 from .api.downloads import router as downloads_router
 from .api.kmoe import router as kmoe_router
 from .api.settings import router as settings_router
+from .api.storage import router as storage_router
 from .api.subscriptions import router as subscriptions_router
 from .config import Settings, get_settings
 from .db import create_database
 from .kmoe.client import KmoeClient
 from .services.checks import CheckService
 from .services.downloads import DownloadService
+from .services.storage_migrations import StorageMigrationService
 
 
 def alembic_config(database_url: str) -> Config:
@@ -99,6 +101,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await asyncio.to_thread(backup_sqlite_before_migrate, resolved.database_url)
         await migrate(resolved.database_url)
         app.state.database = create_database(resolved.database_url)
+        app.state.storage_migration_service = app.state.storage_migration_service_factory(
+            app.state.database, resolved
+        )
         app.state.check_service = CheckService(
             app.state.database,
             resolved,
@@ -112,18 +117,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lambda: app.state.transfer_client_factory(),
         )
         try:
+            await app.state.storage_migration_service.start()
             await app.state.check_service.start()
             await app.state.download_service.start()
             yield
         finally:
             await app.state.download_service.stop()
             await app.state.check_service.stop()
+            await app.state.storage_migration_service.stop()
             await app.state.database.engine.dispose()
 
     app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved
     app.state.kmoe_client_factory = KmoeClient
     app.state.download_service_factory = DownloadService
+    app.state.storage_migration_service_factory = StorageMigrationService
     app.state.transfer_client_factory = lambda: httpx.AsyncClient(
         follow_redirects=False,
         timeout=httpx.Timeout(60),
@@ -133,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(downloads_router)
     app.include_router(kmoe_router)
     app.include_router(settings_router)
+    app.include_router(storage_router)
     app.include_router(subscriptions_router)
 
     @app.get("/health/live")

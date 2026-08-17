@@ -8,6 +8,9 @@ from kmoe_subscriptions.kmoe.schemas import ContentType, DownloadFormat
 from kmoe_subscriptions.storage import (
     FileConflict,
     FileIntegrityError,
+    InvalidStoragePath,
+    StorageBoundary,
+    StoragePathSymlink,
     download_paths,
     library_directory,
     prepare_download,
@@ -65,3 +68,32 @@ def test_promotes_only_complete_nonempty_files_atomically(tmp_path: Path) -> Non
         promote_download(incomplete, expected_bytes=10)
     assert incomplete.temporary.exists()
     assert not incomplete.final.exists()
+
+
+def test_storage_boundary_allows_only_mounted_relative_directories(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "storage"
+    root.mkdir()
+    boundary = StorageBoundary(root)
+
+    created = boundary.create_directory("漫画/Kmoe")
+    assert created == (root / "漫画" / "Kmoe").resolve()
+    assert boundary.assert_writable("漫画/Kmoe") == created
+    assert boundary.list_directories("") == ("漫画",)
+
+    for invalid in ("../escape", "/absolute", "D:\\漫画", "safe/../escape"):
+        with pytest.raises(InvalidStoragePath):
+            boundary.directory(invalid, create=True)
+
+
+def test_storage_boundary_rejects_symbolic_link_components(tmp_path: Path) -> None:
+    root = tmp_path / "storage"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+
+    boundary = StorageBoundary(root)
+    with pytest.raises(StoragePathSymlink):
+        boundary.directory("linked", create=True)

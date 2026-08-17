@@ -80,6 +80,24 @@ class CheckStatus(StrEnum):
     FAILED = "failed"
 
 
+class StorageMigrationPhase(StrEnum):
+    PENDING = "pending"
+    WAITING_FOR_DOWNLOADS = "waiting_for_downloads"
+    COPYING = "copying"
+    COMMITTING = "committing"
+    CLEANING = "cleaning"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class StorageMigrationFileStatus(StrEnum):
+    PENDING = "pending"
+    COPIED = "copied"
+    COMMITTED = "committed"
+    CLEANED = "cleaned"
+    CONFLICT = "conflict"
+
+
 class Comic(Base):
     __tablename__ = "comics"
 
@@ -125,6 +143,7 @@ class AppSetting(Base):
     download_concurrency: Mapped[int] = mapped_column(Integer, default=2)
     max_download_retries: Mapped[int] = mapped_column(Integer, default=3)
     preferred_mirror: Mapped[str] = mapped_column(String(255), default="mox.moe")
+    download_subpath: Mapped[str] = mapped_column(String(1024), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
@@ -213,6 +232,61 @@ class DownloadTask(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class StorageMigration(Base):
+    __tablename__ = "storage_migrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_subpath: Mapped[str] = mapped_column(String(1024))
+    target_subpath: Mapped[str] = mapped_column(String(1024))
+    phase: Mapped[str] = mapped_column(
+        String(32), default=StorageMigrationPhase.PENDING.value, index=True
+    )
+    failed_phase: Mapped[str | None] = mapped_column(String(32))
+    total_files: Mapped[int] = mapped_column(Integer, default=0)
+    processed_files: Mapped[int] = mapped_column(Integer, default=0)
+    total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    processed_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    current_relative_path: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class StorageMigrationFile(Base):
+    __tablename__ = "storage_migration_files"
+    __table_args__ = (
+        UniqueConstraint(
+            "migration_id",
+            "download_task_id",
+            name="uq_storage_migration_task",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    migration_id: Mapped[int] = mapped_column(
+        ForeignKey("storage_migrations.id", ondelete="CASCADE"), index=True
+    )
+    download_task_id: Mapped[int] = mapped_column(
+        ForeignKey("download_tasks.id", ondelete="CASCADE"), index=True
+    )
+    source_relative_path: Mapped[str] = mapped_column(Text)
+    target_relative_path: Mapped[str] = mapped_column(Text)
+    expected_size: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(
+        String(16), default=StorageMigrationFileStatus.PENDING.value, index=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
 
 
 class ActivityEvent(Base):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -26,6 +27,7 @@ from ..models import (
     TaskStatus,
 )
 from ..services.subscriptions import initialize_subscription
+from ..services.subscription_policy import PolicyImpact, reconcile_policy
 from ..security import utcnow
 
 
@@ -42,6 +44,16 @@ class SubscriptionCreate(BaseModel):
 class SubscriptionEdit(BaseModel):
     content_types: set[ContentType] | None = Field(default=None, min_length=1)
     download_format: DownloadFormat | None = None
+    initialization_strategy: InitializationStrategy | None = None
+
+
+class PolicyImpactView(BaseModel):
+    created: int
+    converted: int
+    reused: int
+    cancelled: int
+    retained_running: int
+    retained_completed: int
 
 
 class SubscriptionView(BaseModel):
@@ -60,6 +72,7 @@ class SubscriptionView(BaseModel):
     next_check_at: datetime | None
     last_error_code: str | None
     last_error_message: str | None
+    reconciliation: PolicyImpactView | None = None
 
 
 async def get_subscription(
@@ -77,7 +90,24 @@ async def get_subscription(
     return row[0], row[1]
 
 
-def subscription_view(subscription: Subscription, comic: Comic) -> SubscriptionView:
+def impact_view(impact: PolicyImpact | None) -> PolicyImpactView | None:
+    if impact is None:
+        return None
+    return PolicyImpactView(
+        created=impact.created,
+        converted=impact.converted,
+        reused=impact.reused,
+        cancelled=impact.cancelled,
+        retained_running=impact.retained_running,
+        retained_completed=impact.retained_completed,
+    )
+
+
+def subscription_view(
+    subscription: Subscription,
+    comic: Comic,
+    impact: PolicyImpact | None = None,
+) -> SubscriptionView:
     return SubscriptionView(
         id=subscription.id,
         comic_id=comic.id,
@@ -96,6 +126,7 @@ def subscription_view(subscription: Subscription, comic: Comic) -> SubscriptionV
         next_check_at=subscription.next_check_at,
         last_error_code=subscription.last_error_code,
         last_error_message=subscription.last_error_message,
+        reconciliation=impact_view(impact),
     )
 
 
@@ -178,15 +209,78 @@ async def create_subscription(
 async def edit_subscription(
     subscription_id: int,
     body: SubscriptionEdit,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SubscriptionView:
     subscription, comic = await get_subscription(db, subscription_id)
-    if body.content_types is not None:
-        subscription.content_types = sorted(value.value for value in body.content_types)
-    if body.download_format is not None:
-        subscription.download_format = body.download_format.value
+    content_types = body.content_types or {
+        ContentType(value) for value in subscription.content_types
+    }
+    download_format = body.download_format or DownloadFormat(
+        subscription.download_format
+    )
+    strategy = body.initialization_strategy or InitializationStrategy(
+        subscription.initialization_strategy
+    )
+    impact = await reconcile_policy(
+        db,
+        subscription,
+        content_types=content_types,
+        download_format=download_format,
+        strategy=strategy,
+        apply=True,
+    )
+    db.add(
+        ActivityEvent(
+            event_type="subscription_policy_changed",
+            comic_id=subscription.comic_id,
+            message=(
+                f"Subscription {subscription.id} policy changed: "
+                f"created={impact.created}, converted={impact.converted}, "
+                f"reused={impact.reused}, cancelled={impact.cancelled}"
+            ),
+        )
+    )
     await db.commit()
-    return subscription_view(subscription, comic)
+    for path_value in impact.obsolete_temporary_paths:
+        path = Path(path_value)
+        try:
+            resolved = path.resolve()
+            root = request.app.state.settings.download_dir.resolve()
+            if resolved.is_relative_to(root) and not path.is_symlink():
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if impact.wakes_downloads:
+        request.app.state.download_service.wake()
+    return subscription_view(subscription, comic, impact)
+
+
+@router.post(
+    "/{subscription_id}/policy-preview",
+    response_model=PolicyImpactView,
+    dependencies=[Depends(require_same_origin), Depends(require_csrf)],
+)
+async def preview_subscription_policy(
+    subscription_id: int,
+    body: SubscriptionEdit,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PolicyImpactView:
+    subscription, _ = await get_subscription(db, subscription_id)
+    impact = await reconcile_policy(
+        db,
+        subscription,
+        content_types=body.content_types
+        or {ContentType(value) for value in subscription.content_types},
+        download_format=body.download_format
+        or DownloadFormat(subscription.download_format),
+        strategy=body.initialization_strategy
+        or InitializationStrategy(subscription.initialization_strategy),
+        apply=False,
+    )
+    view = impact_view(impact)
+    assert view is not None
+    return view
 
 
 async def set_enabled(
