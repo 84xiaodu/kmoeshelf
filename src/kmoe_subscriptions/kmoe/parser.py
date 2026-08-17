@@ -130,8 +130,16 @@ def parse_search_results(
     requested_page: int,
     origin: str,
 ) -> SearchPage:
-    result_calls = list(_javascript_calls(page, "disp_divinfo"))
-    page_calls = list(_javascript_calls(page, "disp_divpage"))
+    result_calls = [
+        arguments
+        for arguments in _javascript_calls(page, "disp_divinfo")
+        if arguments
+    ]
+    page_calls = [
+        arguments
+        for arguments in _javascript_calls(page, "disp_divpage")
+        if arguments
+    ]
     if not result_calls and not page_calls:
         raise SiteChanged("Search page has no recognized result structure")
     current_match = PAGE_NOW.search(page)
@@ -197,7 +205,9 @@ def parse_detail_page(page: str, *, detail_path: str, origin: str) -> DetailPage
         title = _plain_text("".join(document.document_title_parts))
     if not title:
         raise SiteChanged("Comic detail has no title")
-    hashes = list(_javascript_calls(page, "data_book"))
+    hashes = [
+        arguments for arguments in _javascript_calls(page, "data_book") if arguments
+    ]
     if not hashes or len(hashes[0]) != 1:
         raise SiteChanged("Comic detail has no supported volume-data hash")
     data_hash = hashes[0][0].strip()
@@ -270,6 +280,10 @@ def _javascript_calls(source: str, name: str) -> Iterator[list[str]]:
         start = source.find(marker, position)
         if start < 0:
             return
+        declaration_prefix = source[max(0, start - 64) : start]
+        if re.search(r"\bfunction\s*$", declaration_prefix):
+            position = start + len(marker)
+            continue
         arguments, position = _read_javascript_arguments(source, start + len(marker))
         yield arguments
 
@@ -285,6 +299,20 @@ def _read_javascript_arguments(source: str, position: int) -> tuple[list[str], i
             break
         if source[position] in {'"', "'"}:
             value, position = _read_javascript_string(source, position)
+            while True:
+                while position < len(source) and source[position].isspace():
+                    position += 1
+                if position >= len(source) or source[position] != "+":
+                    break
+                position += 1
+                while position < len(source) and source[position].isspace():
+                    position += 1
+                if position >= len(source) or source[position] not in {'"', "'"}:
+                    raise SiteChanged(
+                        "JavaScript string concatenation has an unsupported operand"
+                    )
+                part, position = _read_javascript_string(source, position)
+                value += part
         else:
             start = position
             while position < len(source) and source[position] not in ",)":

@@ -1,6 +1,10 @@
 <!-- Sanitized from the current disp_divinfo/disp_divpage contract; no live URLs or user data. -->
 <script>
-disp_divinfo('result-1', '/c/50076.htm', '/covers/50076.jpg', '', '', 'not-en', 'not-end', 'not-break', '9.5', '<b>示例漫画</b>', '作者 &amp; 甲', '12', '2026-08-16');
+function disp_divinfo(div_id, book_url, cover_url, border_color, disp_tag_jp, disp_tag_en, disp_tag_end, disp_tag_brk, book_score, book_name, book_author, word_status, word_update) {}
+function disp_divpage(div_id, search_text, total_pages) {}
+disp_divinfo();
+disp_divpage();
+disp_divinfo('result-' + '1', '/c/50076.htm', '/covers/50076.jpg', '', '', 'not-en', 'not-end', 'not-break', '9.5', '<b>示例漫画</b>', '作者 &amp; 甲', '12', '2026-08-16');
 disp_divinfo("result-2", "https://mox.moe/m/c/A12.htm", "https://images.example.invalid/A12.jpg", "", "not-ja", "", "not-end", "not-break", "8", "Rock \"N\" Roll", "Author \u4e59", "3", "2026-08-15");
 disp_divpage('pages', '示例', '2', 'unused');
 var page_now = "01";

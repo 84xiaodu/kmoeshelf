@@ -26,7 +26,7 @@ def load_text(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
-def test_parses_current_search_contract_and_escaped_values() -> None:
+def test_parses_current_search_contract_declarations_and_concatenated_values() -> None:
     result = parse_search_results(
         load_text("search_results_current.html"),
         query="示例",
@@ -57,6 +57,24 @@ def test_distinguishes_valid_empty_search_from_site_change() -> None:
         parse_search_results(
             load_text("search_site_changed.html"),
             query="missing",
+            requested_page=1,
+            origin="https://mox.moe",
+        )
+
+
+def test_rejects_dynamic_javascript_operands_in_search_results() -> None:
+    page = """
+    <script>
+    disp_divinfo('result-' + window.remoteId, '/c/50076.htm', '/cover.jpg', '',
+                 '', 'not-en', 'not-end', 'not-break', '9', 'Title', 'Author');
+    disp_divpage('pages', 'query', '1');
+    var page_now = '1';
+    </script>
+    """
+    with pytest.raises(SiteChanged, match="unsupported operand"):
+        parse_search_results(
+            page,
+            query="query",
             requested_page=1,
             origin="https://mox.moe",
         )
