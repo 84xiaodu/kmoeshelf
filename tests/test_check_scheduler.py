@@ -138,6 +138,7 @@ def test_manual_checks_are_persistent_and_idempotent(tmp_path: Path) -> None:
             "max_download_retries": 4,
             "preferred_mirror": "kxo.moe",
         }
+        assert app.state.download_service.concurrency == 3
 
         include_new_volume = True
         first = web.post(

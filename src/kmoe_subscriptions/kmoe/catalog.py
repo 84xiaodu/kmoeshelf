@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import quote
 
 from .client import DEFAULT_MIRRORS, KmoeClient
 from .errors import SiteChanged
 from .parser import (
+    SearchTarget,
     parse_detail_page,
     parse_search_results,
     parse_search_target,
@@ -17,18 +19,40 @@ from .schemas import ComicDetails, SearchPage
 REMOTE_ID = re.compile(r"^[A-Za-z0-9]+$")
 
 
+class SearchTargetCache:
+    def __init__(self) -> None:
+        self._target: SearchTarget | None = None
+        self._lock = asyncio.Lock()
+
+    async def resolve(self, client: KmoeClient) -> SearchTarget:
+        if self._target is not None:
+            return self._target
+        async with self._lock:
+            if self._target is None:
+                discovery = await client.get("/")
+                self._target = parse_search_target(
+                    discovery.text,
+                    origin=f"https://{discovery.url.host}",
+                    trusted_hosts=DEFAULT_MIRRORS,
+                )
+            return self._target
+
+    def invalidate(self) -> None:
+        self._target = None
+
+
 async def search_catalog(
-    client: KmoeClient, *, query: str, page: int = 1
+    client: KmoeClient,
+    *,
+    query: str,
+    page: int = 1,
+    target_cache: SearchTargetCache | None = None,
 ) -> SearchPage:
     query = query.strip()
     if not query or page < 1:
         raise ValueError("Search query and page are invalid")
-    discovery = await client.get("/")
-    target = parse_search_target(
-        discovery.text,
-        origin=f"https://{discovery.url.host}",
-        trusted_hosts=DEFAULT_MIRRORS,
-    )
+    cache = target_cache or SearchTargetCache()
+    target = await cache.resolve(client)
     try:
         client.retarget_mirror(target.host, preserve_cookies=True)
     except ValueError as exc:

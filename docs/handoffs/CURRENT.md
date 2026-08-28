@@ -1,6 +1,6 @@
 # Current implementation handoff
 
-- Updated: 2026-08-17
+- Updated: 2026-08-28
 - Branch: `main`
 - Baseline commit: working tree after `57f1bed`
 - Active phase: GHCR image publication and Compose pull deployment complete
@@ -27,10 +27,11 @@
 - GitHub Actions run `31992354684` published public `latest` and `sha-57f1bed` images. Anonymous pulls and `docker compose pull` resolved both tags to `sha256:b34cbe6ef857fd8b50c244779e66890fffddaa012dac0a0d10e58009801dc281`.
 - GHCR release verification passed 56 Python tests, Compose validation, sensitive-file scanning, and a complete local Docker multi-stage build.
 - Current search-routing design and implementation plan committed as `1c190dd` and `7840d2d`. The implementation dynamically follows the trusted Kmoe search form instead of the obsolete all-catalog route, safely re-scopes duplicate cookies to the declared mirror, and normalizes the site's zero-page empty result.
+- Search now caches the validated dynamic form target for the application lifetime, invalidating it after adapter errors, so repeated searches avoid the extra home-page request. Download transfers retain responsive cancellation while throttling cancellation database reads to 8 MiB or 0.5-second intervals; runtime download concurrency changes now take effect without restarting the service.
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Current verification: the unified release check passed 56 Python tests, Vite production build, Chromium main flow, Compose validation and sensitive-file scanning. The rebuilt container returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
+- Current verification: 58 Python tests and the Vite production build pass after the search/download throughput optimizations. The earlier unified release check passed the Chromium main flow, Compose validation and sensitive-file scanning. The rebuilt container returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
 
 ## Active work
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import get_db, get_settings, require_csrf, require_same_origin, require_session
 from ..config import Settings
 from ..kmoe.auth import login
-from ..kmoe.catalog import get_comic_details, search_catalog
+from ..kmoe.catalog import SearchTargetCache, get_comic_details, search_catalog
 from ..kmoe.client import DEFAULT_MIRRORS, KmoeClient
 from ..kmoe.credentials import decrypt_cookies, encrypt_cookies
 from ..kmoe.errors import AuthenticationExpired, KmoeError
@@ -174,10 +174,17 @@ async def search(
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
 ) -> SearchPage:
     client, credential = await saved_client(request, settings, db)
+    target_cache: SearchTargetCache = request.app.state.search_target_cache
     try:
         async with client:
-            return await search_catalog(client, query=query, page=page)
+            return await search_catalog(
+                client,
+                query=query,
+                page=page,
+                target_cache=target_cache,
+            )
     except KmoeError as exc:
+        target_cache.invalidate()
         await raise_kmoe_error(exc, db=db, credential=credential)
 
 

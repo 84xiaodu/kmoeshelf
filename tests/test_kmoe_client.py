@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
 
+from kmoe_subscriptions.kmoe.catalog import SearchTargetCache, search_catalog
 from kmoe_subscriptions.kmoe.client import KmoeClient
 from kmoe_subscriptions.kmoe.errors import (
     AuthenticationExpired,
@@ -16,6 +18,9 @@ from kmoe_subscriptions.kmoe.errors import (
 from kmoe_subscriptions.kmoe.schemas import ContentType, RemoteItem
 
 
+FIXTURES = Path(__file__).parent / "fixtures" / "kmoe"
+
+
 def test_remote_item_rejects_invalid_values() -> None:
     with pytest.raises(ValueError):
         RemoteItem(remote_id="", content_type=ContentType.VOLUME, name="Volume 1")
@@ -24,6 +29,39 @@ def test_remote_item_rejects_invalid_values() -> None:
 def test_rejects_mirror_paths() -> None:
     with pytest.raises(ValueError):
         KmoeClient(("example.com/path",))
+
+
+def test_search_target_is_discovered_once_per_process() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        fixture = (
+            "search_form_current.html"
+            if request.url.path == "/"
+            else "search_results_current.html"
+        )
+        text = (FIXTURES / fixture).read_text(encoding="utf-8")
+        if request.url.host == "kxx.moe":
+            text = text.replace("https://mox.moe", "https://kxx.moe")
+        return httpx.Response(
+            200,
+            request=request,
+            text=text,
+        )
+
+    async def run() -> None:
+        cache = SearchTargetCache()
+        for query in ("first", "second"):
+            async with KmoeClient(
+                ("mox.moe", "kxx.moe"),
+                rate_limit_delay=0,
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                await search_catalog(client, query=query, target_cache=cache)
+
+    asyncio.run(run())
+    assert seen == ["/", "/list.php", "/list.php"]
 
 
 def test_retargets_session_only_to_configured_mirror() -> None:

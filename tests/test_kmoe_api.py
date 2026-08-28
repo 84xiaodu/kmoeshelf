@@ -108,10 +108,11 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         )
     )
     volume_calls = 0
+    discovery_calls = 0
     search_calls: list[tuple[str, str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal volume_calls
+        nonlocal discovery_calls, volume_calls
         path = request.url.path
         if path == "/login.php":
             return httpx.Response(
@@ -128,6 +129,7 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
             return httpx.Response(200, request=request, text='<a href="/logout.php">out</a>')
         assert request.headers.get("cookie") == "session=saved-cookie"
         if path == "/":
+            discovery_calls += 1
             assert request.url.host == "mox.moe"
             return httpx.Response(
                 200,
@@ -210,6 +212,7 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
             ("kxx.moe", "示例", "2"),
             ("kxx.moe", "missing-random-query", None),
         ]
+        assert discovery_calls == 1
 
         details = web.get("/api/kmoe/comics/50076")
         assert details.status_code == 200

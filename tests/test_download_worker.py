@@ -33,6 +33,51 @@ def test_retry_delay_uses_bounded_exponential_jitter() -> None:
     assert retry_delay(20, jitter=1) == 61
 
 
+def test_transfer_does_not_query_cancellation_for_every_chunk(tmp_path: Path) -> None:
+    class CountingDownloadService(DownloadService):
+        cancel_checks = 0
+
+        async def _cancel_requested(self, task_id: int) -> bool:
+            self.cancel_checks += 1
+            return False
+
+        async def _progress(
+            self, task_id: int, progress: int, total: int | None
+        ) -> None:
+            pass
+
+    async def run() -> None:
+        payload = b"x" * (3 * 1024 * 1024)
+        settings = Settings(
+            app_secret_key="d" * 48,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'unused.db'}",
+            download_dir=tmp_path,
+        )
+        service = CountingDownloadService(
+            create_database(settings.database_url),
+            settings,
+            KmoeClient,
+            lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(
+                    lambda request: httpx.Response(
+                        200,
+                        request=request,
+                        content=payload,
+                        headers={"Content-Length": str(len(payload))},
+                    )
+                )
+            ),
+        )
+        target = tmp_path / "download.part"
+        assert await service._transfer(
+            1, "https://cdn.example.invalid/book.epub", target
+        ) == len(payload)
+        assert target.stat().st_size == len(payload)
+        assert service.cancel_checks == 1
+
+    asyncio.run(run())
+
+
 def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> None:
     async def run() -> None:
         settings = Settings(

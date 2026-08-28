@@ -60,7 +60,7 @@ export default function Settings({ status, onStatus }: { status: KmoeStatus | nu
   }
   function save(event: FormEvent) {
     event.preventDefault(); if (!settings) return;
-    void run(async () => { setSettings(await api.updateSettings(settings)); }, "运行设置已保存。下载并发数将在服务重启后完全生效");
+    void run(async () => { setSettings(await api.updateSettings(settings)); }, "运行设置已保存，下载并发数已生效");
   }
   function changePassword(event: FormEvent) {
     event.preventDefault();

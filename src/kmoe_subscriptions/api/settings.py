@@ -81,4 +81,5 @@ async def update_schedule_settings(
     )
     await db.commit()
     request.app.state.check_service.reschedule(body.check_interval_hours)
+    request.app.state.download_service.set_concurrency(body.download_concurrency)
     return body

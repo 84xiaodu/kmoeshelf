@@ -61,6 +61,8 @@ from ..storage import (
 
 CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 REDIRECTS = {301, 302, 303, 307, 308}
+CANCEL_CHECK_BYTES = 8 * 1024 * 1024
+CANCEL_CHECK_SECONDS = 0.5
 logger = logging.getLogger(__name__)
 
 
@@ -89,7 +91,8 @@ class DownloadService:
         self.kmoe_client_factory = kmoe_client_factory
         self.transfer_client_factory = transfer_client_factory
         self._wake = asyncio.Event()
-        self._workers: list[asyncio.Task[None]] = []
+        self._workers: dict[int, asyncio.Task[None]] = {}
+        self._desired_concurrency = 0
         self._stopping = False
 
     async def start(self) -> None:
@@ -109,23 +112,36 @@ class DownloadService:
             )
             setting = await session.get(AppSetting, 1)
             concurrency = setting.download_concurrency if setting else 2
-        self._workers = [
-            asyncio.create_task(self._worker(), name=f"download-worker-{index}")
-            for index in range(max(1, concurrency))
-        ]
-        self._wake.set()
+        self.set_concurrency(concurrency)
 
     async def stop(self) -> None:
         self._stopping = True
+        self._desired_concurrency = 0
         self._wake.set()
         if self._workers:
-            await asyncio.gather(*self._workers)
+            await asyncio.gather(*self._workers.values())
+
+    @property
+    def concurrency(self) -> int:
+        return self._desired_concurrency
+
+    def set_concurrency(self, concurrency: int) -> None:
+        if not 1 <= concurrency <= 8:
+            raise ValueError("download concurrency must be between 1 and 8")
+        self._desired_concurrency = concurrency
+        for index in range(concurrency):
+            worker = self._workers.get(index)
+            if worker is None or worker.done():
+                self._workers[index] = asyncio.create_task(
+                    self._worker(index), name=f"download-worker-{index}"
+                )
+        self._wake.set()
 
     def wake(self) -> None:
         self._wake.set()
 
-    async def _worker(self) -> None:
-        while True:
+    async def _worker(self, index: int) -> None:
+        while index < self._desired_concurrency:
             task_id = await self._claim()
             if task_id is not None:
                 await self._process(task_id)
@@ -324,20 +340,29 @@ class DownloadService:
                     written = existing
                     persisted = existing
                     last_update = time.monotonic()
+                    last_cancel_check = last_update
+                    cancel_checked_at = written
                     temporary.parent.mkdir(parents=True, exist_ok=True)
                     with temporary.open(mode) as output:
                         async for chunk in response.aiter_bytes(256 * 1024):
-                            if await self._cancel_requested(task_id):
-                                raise DownloadCancelled
                             output.write(chunk)
                             written += len(chunk)
+                            now = time.monotonic()
+                            if (
+                                written - cancel_checked_at >= CANCEL_CHECK_BYTES
+                                or now - last_cancel_check >= CANCEL_CHECK_SECONDS
+                            ):
+                                if await self._cancel_requested(task_id):
+                                    raise DownloadCancelled
+                                cancel_checked_at = written
+                                last_cancel_check = now
                             if (
                                 written - persisted >= 1024 * 1024
-                                or time.monotonic() - last_update >= 1
+                                or now - last_update >= 1
                             ):
                                 await self._progress(task_id, written, total)
                                 persisted = written
-                                last_update = time.monotonic()
+                                last_update = now
                     if written != persisted:
                         await self._progress(task_id, written, total)
                     return total

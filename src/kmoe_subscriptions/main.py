@@ -24,6 +24,7 @@ from .api.storage import router as storage_router
 from .api.subscriptions import router as subscriptions_router
 from .config import Settings, get_settings
 from .db import create_database
+from .kmoe.catalog import SearchTargetCache
 from .kmoe.client import KmoeClient
 from .services.checks import CheckService
 from .services.downloads import DownloadService
@@ -129,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved
+    app.state.search_target_cache = SearchTargetCache()
     app.state.kmoe_client_factory = KmoeClient
     app.state.download_service_factory = DownloadService
     app.state.storage_migration_service_factory = StorageMigrationService
