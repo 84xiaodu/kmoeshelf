@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, messageOf } from "../api";
-import type { ComicDetails, ContentType, DownloadFormat, SearchPage } from "../types";
+import type { ComicDetails, ComicSummary, ContentType, DownloadFormat, RecommendationPage, SearchPage } from "../types";
 import { Alert, EmptyState, Spinner } from "../ui";
 
 const typeLabels: Record<ContentType, string> = { volume: "单行本", extra: "番外", serial: "连载话" };
@@ -9,16 +9,31 @@ export default function Search({ connected }: { connected: boolean }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SearchPage | null>(null);
   const [details, setDetails] = useState<ComicDetails | null>(null);
+  const [recommendations, setRecommendations] = useState<RecommendationPage | null>(null);
   const [types, setTypes] = useState<ContentType[]>(["volume"]);
   const [format, setFormat] = useState<DownloadFormat>("epub");
   const [strategy, setStrategy] = useState<"backfill" | "future_only">("future_only");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    api.recommendations()
+      .then((page) => { if (active) setRecommendations(page); })
+      .catch(() => { if (active) setRecommendations({ sections: [] }); });
+    return () => { active = false; };
+  }, [connected]);
   async function search(event?: FormEvent, page = 1) {
     event?.preventDefault(); if (!query.trim()) return;
     setBusy(true); setError(""); setDetails(null);
     try { setResult(await api.search(query.trim(), page)); }
+    catch (reason) { setError(messageOf(reason)); }
+    finally { setBusy(false); }
+  }
+  async function quickSearch(term: string) {
+    setQuery(term); setBusy(true); setError(""); setDetails(null);
+    try { setResult(await api.search(term, 1)); }
     catch (reason) { setError(messageOf(reason)); }
     finally { setBusy(false); }
   }
@@ -39,16 +54,31 @@ export default function Search({ connected }: { connected: boolean }) {
   }
   function toggle(type: ContentType) { setTypes((current) => current.includes(type) ? current.filter((value) => value !== type) : [...current, type]); }
   if (!connected) return <section className="page"><header className="page-head"><div><p className="eyebrow">发现漫画</p><h1>搜索 Kmoe 书库</h1></div></header><Alert tone="info">请先在 <a href="#/settings">设置</a> 中登录 Kmoe 账号。</Alert></section>;
-  return <section className="page">
-    <header className="page-head"><div><p className="eyebrow">发现漫画</p><h1>搜索 Kmoe 书库</h1><p>按标题或作者查找，然后选择追踪范围。</p></div></header>
-    <form className="search-bar" onSubmit={(event) => void search(event)}><label className="sr-only" htmlFor="comic-query">漫画关键词</label><input id="comic-query" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="输入漫画标题或作者…" /><button className="button button-primary" disabled={busy}>搜索</button></form>
+  return <section className="page discovery-page">
+    <header className="discovery-hero"><div><p className="eyebrow">发现漫画</p><h1>搜索、推荐与订阅</h1><p>从关键词搜索开始，也可以先浏览系统为你准备的题材入口。</p></div><div className="hero-card"><strong>推荐会自动避开已订阅作品</strong><small>登录 Kmoe 后根据订阅作者与常用题材实时生成。</small></div></header>
+    <form className="search-bar search-bar-large" onSubmit={(event) => void search(event)}><label className="sr-only" htmlFor="comic-query">漫画关键词</label><input id="comic-query" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="输入漫画标题、作者或题材…" /><button className="button button-primary" disabled={busy}>搜索</button></form>
     {error && <Alert>{error}</Alert>}{notice && <Alert tone="success">{notice}。<a href="#/subscriptions">查看订阅</a></Alert>}{busy && <Spinner />}
-    {details ? <ComicDetail details={details} types={types} setType={toggle} format={format} setFormat={setFormat} strategy={strategy} setStrategy={setStrategy} subscribe={subscribe} busy={busy} close={() => setDetails(null)} /> : result && <>
-      <p className="result-count">第 {result.current_page} / {result.total_pages} 页 · {result.results.length} 条结果</p>
-      {!result.results.length ? <EmptyState title="没有找到漫画">换一个关键词再试试。</EmptyState> : <div className="comic-grid">{result.results.map((comic) => <button className="comic-card" key={comic.remote_id} onClick={() => void open(comic.remote_id)}><Cover src={comic.cover_url} title={comic.title} /><span><strong>{comic.title}</strong><small>{comic.author ?? "作者未知"} · {comic.language ?? "语言未知"}</small><em>#{comic.remote_id}</em></span></button>)}</div>}
-      <div className="pager"><button className="button button-quiet" disabled={result.current_page <= 1} onClick={() => void search(undefined, result.current_page - 1)}>上一页</button><button className="button button-quiet" disabled={result.current_page >= result.total_pages} onClick={() => void search(undefined, result.current_page + 1)}>下一页</button></div>
+    {details ? <ComicDetail details={details} types={types} setType={toggle} format={format} setFormat={setFormat} strategy={strategy} setStrategy={setStrategy} subscribe={subscribe} busy={busy} close={() => setDetails(null)} /> : <>
+      {!result && <Recommendations page={recommendations} open={open} runSearch={quickSearch} />}
+      {result && <>
+        <p className="result-count">第 {result.current_page} / {result.total_pages} 页 · {result.results.length} 条结果</p>
+        {!result.results.length ? <EmptyState title="没有找到漫画">换一个关键词再试试。</EmptyState> : <div className="comic-grid">{result.results.map((comic) => <button className="comic-card" key={comic.remote_id} onClick={() => void open(comic.remote_id)}><Cover src={comic.cover_url} title={comic.title} /><span><strong>{comic.title}</strong><small>{comic.author ?? "作者未知"} · {comic.language ?? "语言未知"}</small><em>#{comic.remote_id}</em></span></button>)}</div>}
+        <div className="pager"><button className="button button-quiet" disabled={result.current_page <= 1} onClick={() => void search(undefined, result.current_page - 1)}>上一页</button><button className="button button-quiet" disabled={result.current_page >= result.total_pages} onClick={() => void search(undefined, result.current_page + 1)}>下一页</button></div>
+      </>}
     </>}
   </section>;
+}
+
+function Recommendations({ page, open, runSearch }: { page: RecommendationPage | null; open: (id: string) => Promise<void>; runSearch: (term: string) => Promise<void> }) {
+  const fallbackTerms = ["異世界", "戀愛", "懸疑", "完結"];
+  if (page === null) return <div className="recommendation-skeleton"><Spinner label="正在生成推荐" /></div>;
+  return <div className="recommendations"><div className="section-title"><div><p className="eyebrow">今日推荐</p><h2>先从这些书单逛起</h2></div><div className="keyword-row">{fallbackTerms.map((term) => <button key={term} onClick={() => void runSearch(term)}>#{term}</button>)}</div></div>
+    {!page.sections.length ? <EmptyState title="暂时没有推荐结果">可以直接搜索标题、作者或题材关键词。</EmptyState> : page.sections.map((section) => <section className="recommendation-section" key={section.query}><div className="panel-head"><div><h3>{section.title}</h3><p>{section.reason}</p></div><button className="text-button" onClick={() => void runSearch(section.query)}>搜索“{section.query}”</button></div><div className="recommendation-strip">{section.results.map((comic) => <RecommendationCard key={comic.remote_id} comic={comic} open={open} />)}</div></section>)}
+  </div>;
+}
+
+function RecommendationCard({ comic, open }: { comic: ComicSummary; open: (id: string) => Promise<void> }) {
+  return <button className="recommendation-card" onClick={() => void open(comic.remote_id)}><Cover src={comic.cover_url} title={comic.title} /><span><strong>{comic.title}</strong><small>{comic.author ?? "作者未知"}</small></span></button>;
 }
 
 function ComicDetail({ details, types, setType, format, setFormat, strategy, setStrategy, subscribe, busy, close }: { details: ComicDetails; types: ContentType[]; setType: (type: ContentType) => void; format: DownloadFormat; setFormat: (format: DownloadFormat) => void; strategy: "backfill" | "future_only"; setStrategy: (value: "backfill" | "future_only") => void; subscribe: () => void; busy: boolean; close: () => void }) {

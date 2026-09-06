@@ -207,10 +207,20 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         assert empty.status_code == 200
         assert empty.json()["total_pages"] == 1
         assert empty.json()["results"] == []
+
+        recommendations = web.get(
+            "/api/kmoe/recommendations", params={"section_limit": 1}
+        )
+        assert recommendations.status_code == 200
+        recommendation = recommendations.json()["sections"][0]
+        assert recommendation["query"] == "異世界"
+        assert recommendation["results"][0]["remote_id"] == "50076"
+
         assert search_calls == [
             ("kxx.moe", "示例", None),
             ("kxx.moe", "示例", "2"),
             ("kxx.moe", "missing-random-query", None),
+            ("kxx.moe", "異世界", None),
         ]
         assert discovery_calls == 1
 

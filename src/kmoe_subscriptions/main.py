@@ -24,6 +24,7 @@ from .api.storage import router as storage_router
 from .api.subscriptions import router as subscriptions_router
 from .config import Settings, get_settings
 from .db import create_database
+from .external.bangumi import BangumiClient
 from .kmoe.catalog import SearchTargetCache
 from .kmoe.client import KmoeClient
 from .services.checks import CheckService
@@ -128,10 +129,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.storage_migration_service.stop()
             await app.state.database.engine.dispose()
 
-    app = FastAPI(title="Kmoe Subscriptions", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Kmoe Subscriptions", version="0.2.0", lifespan=lifespan)
     app.state.settings = resolved
     app.state.search_target_cache = SearchTargetCache()
     app.state.kmoe_client_factory = KmoeClient
+    app.state.bangumi_client_factory = lambda: BangumiClient(
+        base_url=resolved.bangumi_api_base_url
+    )
     app.state.download_service_factory = DownloadService
     app.state.storage_migration_service_factory = StorageMigrationService
     app.state.transfer_client_factory = lambda: httpx.AsyncClient(

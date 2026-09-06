@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     download_dir: Path = Path("/storage")
     cookie_secure: bool = False
     session_hours: int = Field(default=24 * 14, ge=1, le=24 * 90)
+    bangumi_recommendations: bool = False
+    bangumi_api_base_url: str = "https://api.bgm.tv"
 
 
 @lru_cache

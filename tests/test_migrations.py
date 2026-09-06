@@ -33,6 +33,24 @@ def test_migrations_match_models(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_sqlite_connections_enable_runtime_pragmas(tmp_path: Path) -> None:
+    async def run() -> None:
+        database = create_database(f"sqlite+aiosqlite:///{tmp_path / 'app.db'}")
+        async with database.engine.connect() as connection:
+            foreign_keys = await connection.exec_driver_sql("PRAGMA foreign_keys")
+            journal_mode = await connection.exec_driver_sql("PRAGMA journal_mode")
+            synchronous = await connection.exec_driver_sql("PRAGMA synchronous")
+            busy_timeout = await connection.exec_driver_sql("PRAGMA busy_timeout")
+
+            assert foreign_keys.scalar_one() == 1
+            assert journal_mode.scalar_one().lower() == "wal"
+            assert synchronous.scalar_one() == 1
+            assert busy_timeout.scalar_one() == 5000
+        await database.engine.dispose()
+
+    asyncio.run(run())
+
+
 def test_alembic_config_supports_installed_runtime_layout(
     tmp_path: Path, monkeypatch
 ) -> None:

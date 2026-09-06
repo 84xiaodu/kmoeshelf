@@ -61,6 +61,17 @@ export interface SearchPage {
   results: ComicSummary[];
 }
 
+export interface RecommendationSection {
+  title: string;
+  reason: string;
+  query: string;
+  results: ComicSummary[];
+}
+
+export interface RecommendationPage {
+  sections: RecommendationSection[];
+}
+
 export interface Subscription {
   id: number;
   comic_id: number;
