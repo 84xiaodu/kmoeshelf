@@ -2,6 +2,129 @@ import { expect, test, type Route } from "@playwright/test";
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+test("仪表盘使用完整任务计数而不是有界任务列表计数", async ({ page }) => {
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return json(route, { setup_required: false, authenticated: true });
+    if (path === "/api/auth/me") return json(route, { authenticated: true, csrf_token: "test-csrf" });
+    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active" });
+    if (path === "/api/subscriptions") return json(route, []);
+    if (path === "/api/downloads") return json(route, {
+      tasks: [],
+      counts: { pending: 7, running: 3, completed: 1000, failed: 2, cancelled: 4 },
+    });
+    return json(route, { detail: `Unhandled ${path}` }, 500);
+  });
+
+  await page.goto("/");
+
+  const downloading = page.locator(".stat-card").filter({ hasText: "正在下载" });
+  await expect(downloading.locator("strong")).toHaveText("3");
+  await expect(downloading.locator("small")).toHaveText("7 个等待中");
+});
+
+test("较慢的 REST 快照不会覆盖较新的下载事件", async ({ page }) => {
+  const liveTask = {
+    id: 8,
+    comic_title: "实时更新漫画",
+    item_name: "第二卷",
+    content_type: "volume",
+    download_format: "epub",
+    status: "failed",
+    attempt_count: 1,
+    progress_bytes: 0,
+    total_bytes: null,
+    final_path: null,
+    error_code: "network_error",
+    error_message: "连接失败",
+    next_attempt_at: null,
+    created_at: "2026-08-17T00:02:00",
+  };
+  const staleTask = { ...liveTask, id: 7, comic_title: "过期任务", status: "pending", error_code: null, error_message: null };
+  let releaseRest!: () => void;
+  const restGate = new Promise<void>((resolve) => { releaseRest = resolve; });
+  let eventRequests = 0;
+
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return json(route, { setup_required: false, authenticated: true });
+    if (path === "/api/auth/me") return json(route, { authenticated: true, csrf_token: "test-csrf" });
+    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active" });
+    if (path === "/api/downloads/events") {
+      eventRequests += 1;
+      const body = eventRequests === 1
+        ? `event: downloads\ndata: ${JSON.stringify({ tasks: [liveTask], counts: { pending: 0, running: 0, completed: 0, failed: 1, cancelled: 0 } })}\n\n: keepalive\n\n`
+        : ": keepalive\n\n";
+      return route.fulfill({ status: 200, contentType: "text/event-stream", body });
+    }
+    if (path === "/api/downloads") {
+      await restGate;
+      return json(route, { tasks: [staleTask], counts: { pending: 1, running: 0, completed: 0, failed: 0, cancelled: 0 } });
+    }
+    return json(route, { detail: `Unhandled ${path}` }, 500);
+  });
+
+  await page.goto("/#/downloads");
+  await expect(page.getByRole("button", { name: /失败/ }).locator("span")).toHaveText("1");
+  releaseRest();
+
+  await expect(page.getByRole("heading", { name: "实时更新漫画" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /失败/ }).locator("span")).toHaveText("1");
+  await expect(page.getByText("过期任务")).toHaveCount(0);
+});
+
+test("下载状态筛选取回默认快照外的失败任务并提供重试", async ({ page }) => {
+  const failedTask = {
+    id: 7,
+    comic_id: 1,
+    comic_remote_id: "comic-1",
+    comic_title: "旧失败漫画",
+    item_remote_id: "volume-1",
+    item_name: "第一卷",
+    content_type: "volume",
+    download_format: "epub",
+    status: "failed",
+    attempt_count: 3,
+    progress_bytes: 0,
+    total_bytes: null,
+    final_path: null,
+    error_code: "network_error",
+    error_message: "连接失败",
+    next_attempt_at: null,
+    created_at: "2026-08-17T00:00:00",
+    started_at: null,
+    completed_at: "2026-08-17T00:01:00",
+  };
+  const eventStatuses: (string | null)[] = [];
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (path === "/api/auth/status") return json(route, { setup_required: false, authenticated: true });
+    if (path === "/api/auth/me") return json(route, { authenticated: true, csrf_token: "test-csrf" });
+    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active" });
+    if (path === "/api/downloads/events") {
+      eventStatuses.push(url.searchParams.get("status"));
+      return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": keepalive\n\n" });
+    }
+    if (path === "/api/downloads") {
+      const filtered = url.searchParams.get("status") === "failed";
+      return json(route, {
+        tasks: filtered ? [failedTask] : [],
+        counts: { pending: 0, running: 0, completed: 100, failed: 1, cancelled: 0 },
+      });
+    }
+    return json(route, { detail: `Unhandled ${path}` }, 500);
+  });
+
+  await page.goto("/#/downloads");
+  await page.getByRole("button", { name: /失败/ }).click();
+
+  await expect(page.getByRole("heading", { name: "旧失败漫画" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试" })).toBeVisible();
+  await expect.poll(() => eventStatuses).toContain("failed");
+});
+
 test("管理员可完成初始化、Kmoe 登录、搜索和订阅", async ({ page }) => {
   let setupRequired = true;
   let connected = false;
@@ -20,7 +143,7 @@ test("管理员可完成初始化、Kmoe 登录、搜索和订阅", async ({ pag
     if (path === "/api/subscriptions" && request.method() === "POST") { subscription = { id: 1, comic_id: 1, remote_id: "50076", title: "星海书简", author: "林墨", cover_url: null, enabled: true, content_types: ["volume"], download_format: "epub", initialization_strategy: "future_only", last_attempt_at: null, last_success_at: null, next_check_at: null, last_error_code: null, last_error_message: null }; return json(route, subscription, 201); }
     if (path === "/api/subscriptions/1/policy-preview") return json(route, { created: 1, converted: 0, reused: 0, cancelled: 0, retained_running: 0, retained_completed: 0 });
     if (path === "/api/subscriptions/1" && request.method() === "PATCH") { subscription = { ...(subscription ?? {}), content_types: ["volume", "extra"], initialization_strategy: "backfill" }; return json(route, subscription); }
-    if (path === "/api/downloads") return json(route, []);
+    if (path === "/api/downloads") return json(route, { tasks: [], counts: { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 } });
     if (path === "/api/settings" && request.method() === "GET") return json(route, { check_interval_hours: 6, download_concurrency: 2, max_download_retries: 3, preferred_mirror: "mox.moe" });
     if (path === "/api/storage" && request.method() === "GET") return json(route, { mounted_root: "/storage", active_subpath: "", effective_path: "/storage", writable: true, migration });
     if (path === "/api/storage/directories" && request.method() === "GET") return json(route, { path: url.searchParams.get("path") ?? "", directories: ["manga"] });

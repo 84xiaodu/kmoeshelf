@@ -78,6 +78,51 @@ def test_transfer_does_not_query_cancellation_for_every_chunk(tmp_path: Path) ->
     asyncio.run(run())
 
 
+def test_transfer_throttles_progress_writes_by_time(tmp_path: Path) -> None:
+    class RecordingDownloadService(DownloadService):
+        progress_updates: list[int]
+
+        async def _cancel_requested(self, task_id: int) -> bool:
+            return False
+
+        async def _progress(
+            self, task_id: int, progress: int, total: int | None
+        ) -> None:
+            self.progress_updates.append(progress)
+
+    async def run() -> None:
+        payload = b"x" * (3 * 1024 * 1024)
+        settings = Settings(
+            app_secret_key="d" * 48,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'unused.db'}",
+            download_dir=tmp_path,
+        )
+        service = RecordingDownloadService(
+            create_database(settings.database_url),
+            settings,
+            KmoeClient,
+            lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(
+                    lambda request: httpx.Response(
+                        200,
+                        request=request,
+                        content=payload,
+                        headers={"Content-Length": str(len(payload))},
+                    )
+                )
+            ),
+        )
+        service.progress_updates = []
+
+        await service._transfer(
+            1, "https://cdn.example.invalid/book.epub", tmp_path / "download.part"
+        )
+
+        assert service.progress_updates == [len(payload)]
+
+    asyncio.run(run())
+
+
 def test_worker_resumes_and_atomically_completes_download(tmp_path: Path) -> None:
     async def run() -> None:
         settings = Settings(

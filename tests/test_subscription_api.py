@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 from kmoe_subscriptions.config import Settings
 from kmoe_subscriptions.kmoe.client import KmoeClient
 from kmoe_subscriptions.main import create_app
-from kmoe_subscriptions.api.downloads import DownloadTaskView, serialize_event
+from kmoe_subscriptions.api.downloads import (
+    DownloadSnapshot,
+    DownloadStatusCounts,
+    DownloadTaskView,
+    serialize_event,
+)
 from kmoe_subscriptions.kmoe.schemas import ContentType, DownloadFormat
 from kmoe_subscriptions.models import TaskStatus
 
@@ -40,33 +45,118 @@ def fixture_text(name: str) -> str:
 
 def test_download_event_never_exposes_temporary_or_signed_urls() -> None:
     event = serialize_event(
-        [
-            DownloadTaskView(
-                id=1,
-                comic_id=1,
-                comic_remote_id="50076",
-                comic_title="Comic",
-                item_remote_id="v1",
-                item_name="Volume 1",
-                content_type=ContentType.VOLUME,
-                download_format=DownloadFormat.EPUB,
-                status=TaskStatus.RUNNING,
-                attempt_count=1,
-                progress_bytes=10,
-                total_bytes=100,
-                final_path="/downloads/Comic/Volume 1.epub",
-                error_code=None,
-                error_message=None,
-                next_attempt_at=None,
-                created_at=datetime(2026, 8, 17),
-                started_at=None,
-                completed_at=None,
-            )
-        ]
+        DownloadSnapshot(
+            tasks=[
+                DownloadTaskView(
+                    id=1,
+                    comic_id=1,
+                    comic_remote_id="50076",
+                    comic_title="Comic",
+                    item_remote_id="v1",
+                    item_name="Volume 1",
+                    content_type=ContentType.VOLUME,
+                    download_format=DownloadFormat.EPUB,
+                    status=TaskStatus.RUNNING,
+                    attempt_count=1,
+                    progress_bytes=10,
+                    total_bytes=100,
+                    final_path="/downloads/Comic/Volume 1.epub",
+                    error_code=None,
+                    error_message=None,
+                    next_attempt_at=None,
+                    created_at=datetime(2026, 8, 17),
+                    started_at=None,
+                    completed_at=None,
+                )
+            ],
+            counts=DownloadStatusCounts(running=1),
+        )
     )
     assert event.startswith("event: downloads\ndata: ")
     assert "temporary" not in event
     assert "signature" not in event
+
+
+def test_download_snapshot_bounds_history_and_keeps_exact_counts(tmp_path: Path) -> None:
+    database_path = tmp_path / "downloads.db"
+    app = create_app(
+        Settings(
+            app_secret_key="s" * 48,
+            database_url=f"sqlite+aiosqlite:///{database_path}",
+            download_dir=tmp_path / "downloads",
+        )
+    )
+    app.state.download_service_factory = NoopDownloadService
+
+    with TestClient(app) as web:
+        assert web.post(
+            "/api/auth/setup", json={"password": ADMIN_PASSWORD}
+        ).status_code == 201
+        now = "2026-08-17 00:00:00"
+        with sqlite3.connect(database_path) as connection:
+            connection.execute(
+                "INSERT INTO comics "
+                "(id, remote_id, title, detail_path, created_at, updated_at) "
+                "VALUES (1, 'comic-1', 'Comic', '/c/1.htm', ?, ?)",
+                (now, now),
+            )
+            connection.executemany(
+                "INSERT INTO remote_items "
+                "(id, comic_id, remote_id, content_type, name, first_seen_at, last_seen_at) "
+                "VALUES (?, 1, ?, 'volume', ?, ?, ?)",
+                [
+                    (item_id, f"item-{item_id}", f"Volume {item_id}", now, now)
+                    for item_id in range(1, 212)
+                ],
+            )
+            connection.executemany(
+                "INSERT INTO download_tasks "
+                "(id, remote_item_id, download_format, status, attempt_count, "
+                "progress_bytes, created_at, updated_at) "
+                "VALUES (?, ?, 'epub', ?, 0, 0, ?, ?)",
+                [
+                    (
+                        task_id,
+                        task_id,
+                        "running"
+                        if task_id == 1
+                        else "failed"
+                        if task_id <= 106
+                        else "completed",
+                        now,
+                        now,
+                    )
+                    for task_id in range(1, 212)
+                ],
+            )
+
+        response = web.get("/api/downloads")
+        assert response.status_code == 200
+        snapshot = response.json()
+        task_ids = [task["id"] for task in snapshot["tasks"]]
+        assert len(task_ids) == 101
+        assert task_ids[0] == 211
+        assert task_ids[-1] == 1
+        assert 2 not in task_ids
+        assert snapshot["counts"] == {
+            "pending": 0,
+            "running": 1,
+            "completed": 105,
+            "failed": 105,
+            "cancelled": 0,
+        }
+
+        failed = web.get("/api/downloads", params={"status": "failed"})
+        assert failed.status_code == 200
+        failed_ids = [task["id"] for task in failed.json()["tasks"]]
+        assert len(failed_ids) == 105
+        assert failed_ids[-1] == 2
+
+        completed = web.get("/api/downloads", params={"status": "completed"})
+        assert completed.status_code == 200
+        completed_ids = [task["id"] for task in completed.json()["tasks"]]
+        assert len(completed_ids) == 100
+        assert completed_ids[-1] == 112
 
 
 def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
@@ -142,7 +232,7 @@ def test_subscription_management_flow_is_transactional(tmp_path: Path) -> None:
         assert created.json()["content_types"] == ["volume"]
         downloads = web.get("/api/downloads", params={"status": "pending"})
         assert downloads.status_code == 200
-        task_id = downloads.json()[0]["id"]
+        task_id = downloads.json()["tasks"][0]["id"]
         cancelled = web.post(f"/api/downloads/{task_id}/cancel", headers=headers)
         assert cancelled.json()["status"] == "cancelled"
         retried = web.post(f"/api/downloads/{task_id}/retry", headers=headers)

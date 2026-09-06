@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - name: Reject runtime data and private keys
-        run: scripts/check-sensitive-files.sh
+        run: bash scripts/check-sensitive-files.sh
       - name: Check patch formatting
         run: git diff --check HEAD^ HEAD
 
@@ -43,6 +45,7 @@ jobs:
       - run: npm --prefix frontend test
 
   container:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: [security, backend, frontend]
     steps:

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, messageOf } from "../api";
-import type { DownloadTask, TaskStatus } from "../types";
+import type { DownloadSnapshot, DownloadTask, TaskStatus } from "../types";
 import { Alert, EmptyState, formatBytes, formatDate, Spinner } from "../ui";
 
 const statuses: [TaskStatus | "", string][] = [["", "全部"], ["running", "下载中"], ["pending", "等待"], ["failed", "失败"], ["completed", "完成"], ["cancelled", "已取消"]];
@@ -17,34 +17,43 @@ const errorAdvice: Record<string, string> = {
 };
 
 export default function Downloads() {
-  const [tasks, setTasks] = useState<DownloadTask[]>([]);
+  const [snapshot, setSnapshot] = useState<DownloadSnapshot>({
+    tasks: [],
+    counts: { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 },
+  });
   const [filter, setFilter] = useState<TaskStatus | "">("");
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
   const [error, setError] = useState("");
-  async function load() {
-    try { setTasks(await api.downloads()); }
-    catch (reason) { setError(messageOf(reason)); }
-    finally { setLoading(false); }
-  }
   useEffect(() => {
-    void load();
-    const events = new EventSource("/api/downloads/events");
-    const update = (event: MessageEvent<string>) => { try { setTasks(JSON.parse(event.data) as DownloadTask[]); setLive(true); } catch { setError("下载状态事件格式无效"); } };
+    let active = true;
+    let receivedDownloadEvent = false;
+    setLoading(true);
+    void api.downloads(filter || undefined)
+      .then((next) => { if (active && !receivedDownloadEvent) setSnapshot(next); })
+      .catch((reason) => { if (active) setError(messageOf(reason)); })
+      .finally(() => { if (active) setLoading(false); });
+    const statusQuery = filter ? `?status=${filter}` : "";
+    const events = new EventSource(`/api/downloads/events${statusQuery}`);
+    const update = (event: MessageEvent<string>) => {
+      if (!active) return;
+      try { const next = JSON.parse(event.data) as DownloadSnapshot; receivedDownloadEvent = true; setSnapshot(next); setLive(true); }
+      catch { setError("下载状态事件格式无效"); }
+    };
     events.addEventListener("downloads", update as EventListener);
-    events.onerror = () => setLive(false);
-    return () => events.close();
-  }, []);
-  const visible = useMemo(() => filter ? tasks.filter((task) => task.status === filter) : tasks, [filter, tasks]);
+    events.onerror = () => { if (active) setLive(false); };
+    return () => { active = false; events.close(); };
+  }, [filter]);
+  const visible = useMemo(() => filter ? snapshot.tasks.filter((task) => task.status === filter) : snapshot.tasks, [filter, snapshot.tasks]);
   async function mutate(action: () => Promise<DownloadTask>) {
     setError("");
-    try { const next = await action(); setTasks((current) => current.map((task) => task.id === next.id ? next : task)); }
+    try { const next = await action(); setSnapshot((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === next.id ? next : task) })); }
     catch (reason) { setError(messageOf(reason)); }
   }
   return <section className="page">
     <header className="page-head"><div><p className="eyebrow">传输中心</p><h1>下载任务</h1><p><span className={`live-indicator ${live ? "is-live" : ""}`} />{live ? "实时状态已连接" : "正在连接实时状态"}</p></div></header>
     {error && <Alert>{error}</Alert>}
-    <div className="filter-tabs" role="tablist" aria-label="任务状态">{statuses.map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}<span>{value ? tasks.filter((task) => task.status === value).length : tasks.length}</span></button>)}</div>
+    <div className="filter-tabs" role="tablist" aria-label="任务状态">{statuses.map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}<span>{value ? snapshot.counts[value] : Object.values(snapshot.counts).reduce((total, count) => total + count, 0)}</span></button>)}</div>
     {loading ? <Spinner /> : !visible.length ? <EmptyState title="当前筛选没有任务">任务由补齐订阅或追新检查自动创建。</EmptyState> : <div className="task-list">{visible.map((task) => <TaskRow key={task.id} task={task} mutate={mutate} />)}</div>}
   </section>;
 }

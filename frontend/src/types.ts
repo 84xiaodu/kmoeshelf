@@ -102,6 +102,11 @@ export interface DownloadTask {
   completed_at: string | null;
 }
 
+export interface DownloadSnapshot {
+  tasks: DownloadTask[];
+  counts: Record<TaskStatus, number>;
+}
+
 export interface AppSettings {
   check_interval_hours: number;
   download_concurrency: number;

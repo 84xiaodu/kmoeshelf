@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -18,6 +18,8 @@ from ..security import utcnow
 
 
 router = APIRouter(prefix="/api/downloads", tags=["downloads"])
+# ponytail: completed history is bounded; add a cursor if full history matters.
+RECENT_TASK_LIMIT = 100
 
 
 class DownloadTaskView(BaseModel):
@@ -40,6 +42,19 @@ class DownloadTaskView(BaseModel):
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+
+
+class DownloadStatusCounts(BaseModel):
+    pending: int = 0
+    running: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+
+
+class DownloadSnapshot(BaseModel):
+    tasks: list[DownloadTaskView]
+    counts: DownloadStatusCounts
 
 
 def task_view(
@@ -84,54 +99,87 @@ async def get_task_row(
     return row[0], row[1], row[2]
 
 
-async def load_task_views(db: AsyncSession) -> list[DownloadTaskView]:
-    rows = (
-        await db.execute(
-            select(DownloadTask, RemoteItemRecord, Comic)
-            .join(RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id)
-            .join(Comic, Comic.id == RemoteItemRecord.comic_id)
-            .order_by(DownloadTask.id.desc())
+async def load_download_snapshot(
+    db: AsyncSession,
+    *,
+    status: TaskStatus | None = None,
+    comic_id: int | None = None,
+) -> DownloadSnapshot:
+    statement = (
+        select(DownloadTask, RemoteItemRecord, Comic)
+        .join(RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id)
+        .join(Comic, Comic.id == RemoteItemRecord.comic_id)
+    )
+    count_statement = select(DownloadTask.status, func.count(DownloadTask.id)).join(
+        RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id
+    )
+    if comic_id is not None:
+        statement = statement.where(Comic.id == comic_id)
+        count_statement = count_statement.where(RemoteItemRecord.comic_id == comic_id)
+    count_rows = (await db.execute(count_statement.group_by(DownloadTask.status))).all()
+    counts = DownloadStatusCounts(
+        **{task_status: count for task_status, count in count_rows}
+    )
+
+    if status is not None:
+        statement = statement.where(DownloadTask.status == status.value).order_by(
+            DownloadTask.id.desc()
         )
-    ).all()
-    return [task_view(task, item, comic) for task, item, comic in rows]
+        if status == TaskStatus.COMPLETED:
+            statement = statement.limit(RECENT_TASK_LIMIT)
+        rows = (await db.execute(statement)).all()
+    else:
+        running = (
+            await db.execute(
+                statement.where(DownloadTask.status == TaskStatus.RUNNING.value).order_by(
+                    DownloadTask.id.desc()
+                )
+            )
+        ).all()
+        recent = (
+            await db.execute(
+                statement.where(DownloadTask.status != TaskStatus.RUNNING.value)
+                .order_by(DownloadTask.id.desc())
+                .limit(RECENT_TASK_LIMIT)
+            )
+        ).all()
+        rows = sorted((*running, *recent), key=lambda row: row[0].id, reverse=True)
+    return DownloadSnapshot(
+        tasks=[task_view(task, item, comic) for task, item, comic in rows],
+        counts=counts,
+    )
 
 
-def serialize_event(tasks: list[DownloadTaskView]) -> str:
-    payload = [task.model_dump(mode="json") for task in tasks]
+def serialize_event(snapshot: DownloadSnapshot) -> str:
+    payload = snapshot.model_dump(mode="json")
     return f"event: downloads\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.get(
     "",
-    response_model=list[DownloadTaskView],
+    response_model=DownloadSnapshot,
     dependencies=[Depends(require_session)],
 )
 async def list_downloads(
     db: Annotated[AsyncSession, Depends(get_db)],
     status: Annotated[TaskStatus | None, Query()] = None,
     comic_id: Annotated[int | None, Query(ge=1)] = None,
-) -> list[DownloadTaskView]:
-    statement = (
-        select(DownloadTask, RemoteItemRecord, Comic)
-        .join(RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id)
-        .join(Comic, Comic.id == RemoteItemRecord.comic_id)
-        .order_by(DownloadTask.id.desc())
-    )
-    if status is not None:
-        statement = statement.where(DownloadTask.status == status.value)
-    if comic_id is not None:
-        statement = statement.where(Comic.id == comic_id)
-    rows = (await db.execute(statement)).all()
-    return [task_view(task, item, comic) for task, item, comic in rows]
+) -> DownloadSnapshot:
+    return await load_download_snapshot(db, status=status, comic_id=comic_id)
 
 
 @router.get("/events", dependencies=[Depends(require_session)])
-async def download_events(request: Request) -> StreamingResponse:
+async def download_events(
+    request: Request,
+    status: Annotated[TaskStatus | None, Query()] = None,
+) -> StreamingResponse:
     async def stream():
         previous: str | None = None
         while not await request.is_disconnected():
             async with request.app.state.database.sessions() as session:
-                event = serialize_event(await load_task_views(session))
+                event = serialize_event(
+                    await load_download_snapshot(session, status=status)
+                )
             if event != previous:
                 yield event
                 previous = event
