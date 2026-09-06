@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, messageOf } from "../api";
-import type { DownloadTask, KmoeStatus, Subscription } from "../types";
+import type { DownloadSnapshot, KmoeStatus, Subscription } from "../types";
 import { Alert, EmptyState, formatDate, Spinner } from "../ui";
 
 export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [downloads, setDownloads] = useState<DownloadTask[]>([]);
+  const [downloads, setDownloads] = useState<DownloadSnapshot>({
+    tasks: [],
+    counts: { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 },
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -20,9 +23,9 @@ export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
   const counts = useMemo(() => ({
     active: subscriptions.filter((item) => item.enabled).length,
     errors: subscriptions.filter((item) => item.last_error_code).length,
-    running: downloads.filter((item) => item.status === "running").length,
-    pending: downloads.filter((item) => item.status === "pending").length,
-  }), [subscriptions, downloads]);
+    running: downloads.counts.running,
+    pending: downloads.counts.pending,
+  }), [subscriptions, downloads.counts]);
   const next = subscriptions.filter((item) => item.next_check_at).sort((a, b) => a.next_check_at!.localeCompare(b.next_check_at!))[0]?.next_check_at ?? null;
   async function checkAll() {
     setError(""); setNotice("");
@@ -44,7 +47,7 @@ export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
       <div className="dashboard-grid">
         <article className="panel next-check"><p className="eyebrow">下一次自动检查</p><h2>{formatDate(next)}</h2><p>检查间隔可在设置中调整；手动检查不会改变已有基线。</p></article>
         <article className="panel"><div className="panel-head"><h2>最近任务</h2><a href="#/downloads">查看全部 →</a></div>
-          {!downloads.length ? <EmptyState title="还没有下载任务">创建一个补齐已有内容的订阅后，任务会出现在这里。</EmptyState> : <div className="compact-list">{downloads.slice(0, 5).map((task) => <div key={task.id}><span className={`status-dot status-${task.status}`} /><span><strong>{task.comic_title}</strong><small>{task.item_name}</small></span><em>{statusLabel[task.status]}</em></div>)}</div>}
+          {!downloads.tasks.length ? <EmptyState title="还没有下载任务">创建一个补齐已有内容的订阅后，任务会出现在这里。</EmptyState> : <div className="compact-list">{downloads.tasks.slice(0, 5).map((task) => <div key={task.id}><span className={`status-dot status-${task.status}`} /><span><strong>{task.comic_title}</strong><small>{task.item_name}</small></span><em>{statusLabel[task.status]}</em></div>)}</div>}
         </article>
       </div>
     </>}

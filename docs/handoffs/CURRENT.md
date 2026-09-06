@@ -1,8 +1,8 @@
 # Current implementation handoff
 
-- Updated: 2026-08-28
-- Branch: `main`
-- Baseline commit: working tree after `57f1bed`
+- Updated: 2026-09-06
+- Branch: `perf/lean-runtime-ci`
+- Baseline commit: working tree after `8f21b08`
 - Active phase: GHCR image publication and Compose pull deployment complete
 
 ## Completed
@@ -31,7 +31,7 @@
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Current verification: 58 Python tests and the Vite production build pass after the search/download throughput optimizations. The earlier unified release check passed the Chromium main flow, Compose validation and sensitive-file scanning. The rebuilt container returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
+- Current verification: 60 Python tests, 4 Chromium tests, and the Vite production build pass after the first lean-runtime patch. Download progress writes are time-throttled; default download list/SSE snapshots include every running task plus 100 recent non-running tasks with exact status counts, while selected statuses are applied to both REST and SSE and all actionable tasks remain accessible. A valid SSE update also wins over an older in-flight REST snapshot. CI/publish image events no longer duplicate builds. The rebuilt container previously returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
 
 ## Active work
 
@@ -62,11 +62,11 @@
 - The host Python is 3.14.6 and Node is 26.3.0.
 - Pytest capture cleanup fails in this desktop environment, so use `-s` when running tests.
 - The in-process `TestClient` currently emits one third-party Starlette deprecation warning; application tests still pass.
-- GitHub Actions CI run `31992354688` passed backend and frontend but its existing security job failed because `scripts/check-sensitive-files.sh` is not executable in the Linux checkout; invoke it through `bash` or restore its executable mode in a follow-up.
+- GitHub Actions CI run `31992354688` exposed the non-executable sensitive-file script and shallow `HEAD^` checkout failures; the current workflow invokes the script through Bash and fetches two commits for the patch check.
 
 ## Next actions
 
 1. Refresh the Web UI and confirm opening one search result's detail page.
 2. Use the Web UI to select a test subdirectory and confirm the completed EPUB is migrated safely.
 3. Complete the remaining unchecked release items; record only non-sensitive pass/fail diagnostics.
-4. Fix the CI security job script invocation or executable mode, then confirm the dependent container job runs.
+4. Confirm the updated CI event split on GitHub: one Docker build per pull request and one build/push on `main`.

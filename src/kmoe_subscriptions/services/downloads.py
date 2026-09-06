@@ -338,7 +338,6 @@ class DownloadService:
                             f"Download range response from {host} is invalid"
                         )
                     written = existing
-                    persisted = existing
                     last_update = time.monotonic()
                     last_cancel_check = last_update
                     cancel_checked_at = written
@@ -356,15 +355,10 @@ class DownloadService:
                                     raise DownloadCancelled
                                 cancel_checked_at = written
                                 last_cancel_check = now
-                            if (
-                                written - persisted >= 1024 * 1024
-                                or now - last_update >= 1
-                            ):
+                            if now - last_update >= 1:
                                 await self._progress(task_id, written, total)
-                                persisted = written
                                 last_update = now
-                    if written != persisted:
-                        await self._progress(task_id, written, total)
+                    await self._progress(task_id, written, total)
                     return total
             raise DownloadUrlExpired("Download URL exceeded the redirect limit")
 
