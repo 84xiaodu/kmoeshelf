@@ -18,6 +18,7 @@ from sqlalchemy import make_url, text
 from .api.auth import router as auth_router
 from .api.checks import router as checks_router
 from .api.downloads import router as downloads_router
+from .api.external import router as external_router
 from .api.kmoe import router as kmoe_router
 from .api.settings import router as settings_router
 from .api.storage import router as storage_router
@@ -129,7 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.storage_migration_service.stop()
             await app.state.database.engine.dispose()
 
-    app = FastAPI(title="Kmoe Subscriptions", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Kmoe Subscriptions", version="0.3.0", lifespan=lifespan)
     app.state.settings = resolved
     app.state.search_target_cache = SearchTargetCache()
     app.state.kmoe_client_factory = KmoeClient
@@ -145,6 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(checks_router)
     app.include_router(downloads_router)
+    app.include_router(external_router)
     app.include_router(kmoe_router)
     app.include_router(settings_router)
     app.include_router(storage_router)

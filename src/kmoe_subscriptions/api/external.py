@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+import hmac
+from datetime import datetime
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from pydantic import BaseModel
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..config import Settings
+from ..kmoe.catalog import get_comic_details
+from ..kmoe.errors import KmoeError
+from ..kmoe.schemas import ContentType, DownloadFormat
+from ..models import (
+    ActivityEvent,
+    Comic,
+    DownloadTask,
+    InitializationStrategy,
+    RemoteItemRecord,
+    Subscription,
+    TaskStatus,
+)
+from ..services.subscription_policy import PolicyImpact, reconcile_policy
+from ..services.subscriptions import initialize_subscription
+from .auth import get_db, get_settings
+from .checks import CheckEnqueueView
+from .downloads import DownloadStatusCounts
+from .kmoe import raise_kmoe_error, saved_client
+from .subscriptions import (
+    PolicyImpactView,
+    SubscriptionCreate,
+    SubscriptionEdit,
+    get_subscription,
+    impact_view,
+    schedule_next_check,
+)
+
+
+async def require_api_token(
+    settings: Annotated[Settings, Depends(get_settings)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> None:
+    token = settings.api_token
+    if token is None or not token.get_secret_value():
+        raise HTTPException(
+            status_code=403,
+            detail="External API is disabled: set KMOE_API_TOKEN",
+        )
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    scheme, _, supplied = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        supplied.strip(), token.get_secret_value()
+    ):
+        raise HTTPException(status_code=401, detail="Invalid API token")
+
+
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["external"],
+    dependencies=[Depends(require_api_token)],
+)
+
+
+class ExternalSubscriptionStatus(BaseModel):
+    id: int
+    remote_id: str
+    title: str
+    author: str | None
+    enabled: bool
+    content_types: tuple[ContentType, ...]
+    download_format: DownloadFormat
+    initialization_strategy: InitializationStrategy
+    last_attempt_at: datetime | None
+    last_success_at: datetime | None
+    next_check_at: datetime | None
+    last_error_code: str | None
+    last_error_message: str | None
+    downloads: DownloadStatusCounts
+    reconciliation: PolicyImpactView | None = None
+
+
+def status_view(
+    subscription: Subscription,
+    comic: Comic,
+    counts: DownloadStatusCounts,
+    impact: PolicyImpact | None = None,
+) -> ExternalSubscriptionStatus:
+    return ExternalSubscriptionStatus(
+        id=subscription.id,
+        remote_id=comic.remote_id,
+        title=comic.title,
+        author=comic.author,
+        enabled=subscription.enabled,
+        content_types=tuple(
+            ContentType(value) for value in subscription.content_types
+        ),
+        download_format=DownloadFormat(subscription.download_format),
+        initialization_strategy=InitializationStrategy(
+            subscription.initialization_strategy
+        ),
+        last_attempt_at=subscription.last_attempt_at,
+        last_success_at=subscription.last_success_at,
+        next_check_at=subscription.next_check_at,
+        last_error_code=subscription.last_error_code,
+        last_error_message=subscription.last_error_message,
+        downloads=counts,
+        reconciliation=impact_view(impact),
+    )
+
+
+async def task_counts(db: AsyncSession, comic_id: int) -> DownloadStatusCounts:
+    rows = (
+        await db.execute(
+            select(DownloadTask.status, func.count(DownloadTask.id))
+            .join(RemoteItemRecord, RemoteItemRecord.id == DownloadTask.remote_item_id)
+            .where(RemoteItemRecord.comic_id == comic_id)
+            .group_by(DownloadTask.status)
+        )
+    ).all()
+    return DownloadStatusCounts(**{status: count or 0 for status, count in rows})
+
+
+@router.get(
+    "/subscriptions",
+    response_model=list[ExternalSubscriptionStatus],
+)
+async def list_subscriptions(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[ExternalSubscriptionStatus]:
+    rows = (
+        await db.execute(
+            select(Subscription, Comic)
+            .join(Comic, Comic.id == Subscription.comic_id)
+            .order_by(Comic.title, Subscription.id)
+        )
+    ).all()
+    count_rows = (
+        await db.execute(
+            select(
+                RemoteItemRecord.comic_id,
+                DownloadTask.status,
+                func.count(DownloadTask.id),
+            )
+            .join(DownloadTask, DownloadTask.remote_item_id == RemoteItemRecord.id)
+            .group_by(RemoteItemRecord.comic_id, DownloadTask.status)
+        )
+    ).all()
+    counts_by_comic: dict[int, dict[str, int]] = {}
+    for comic_id, status, count in count_rows:
+        counts_by_comic.setdefault(comic_id, {})[status] = count or 0
+    return [
+        status_view(
+            subscription,
+            comic,
+            DownloadStatusCounts(**counts_by_comic.get(subscription.comic_id, {})),
+        )
+        for subscription, comic in rows
+    ]
+
+
+@router.get(
+    "/subscriptions/{subscription_id}",
+    response_model=ExternalSubscriptionStatus,
+)
+async def subscription_status(
+    subscription_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ExternalSubscriptionStatus:
+    subscription, comic = await get_subscription(db, subscription_id)
+    return status_view(
+        subscription, comic, await task_counts(db, subscription.comic_id)
+    )
+
+
+@router.post(
+    "/subscriptions",
+    response_model=ExternalSubscriptionStatus,
+    status_code=201,
+)
+async def create_subscription(
+    body: SubscriptionCreate,
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ExternalSubscriptionStatus:
+    existing = await db.scalar(
+        select(Subscription.id)
+        .join(Comic, Comic.id == Subscription.comic_id)
+        .where(Comic.remote_id == body.remote_id)
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Comic is already subscribed")
+    client, credential = await saved_client(request, settings, db)
+    try:
+        async with client:
+            details = await get_comic_details(client, remote_id=body.remote_id)
+    except KmoeError as exc:
+        await raise_kmoe_error(exc, db=db, credential=credential)
+    try:
+        subscription = await initialize_subscription(
+            db,
+            details,
+            content_types=body.content_types,
+            download_format=body.download_format,
+            strategy=body.initialization_strategy,
+        )
+        await schedule_next_check(db, subscription)
+        db.add(
+            ActivityEvent(
+                event_type="subscription_created",
+                comic_id=subscription.comic_id,
+                message=f"Subscribed to {details.title} via external API",
+            )
+        )
+        await db.commit()
+        request.app.state.download_service.wake()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Comic is already subscribed") from exc
+    comic = await db.get(Comic, subscription.comic_id)
+    assert comic is not None
+    return status_view(
+        subscription, comic, await task_counts(db, subscription.comic_id)
+    )
+
+
+@router.delete("/subscriptions/{subscription_id}", status_code=204)
+async def delete_subscription(
+    subscription_id: int,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    cancel_pending: Annotated[bool, Query()],
+) -> Response:
+    subscription, comic = await get_subscription(db, subscription_id)
+    if cancel_pending:
+        item_ids = select(RemoteItemRecord.id).where(
+            RemoteItemRecord.comic_id == subscription.comic_id
+        )
+        await db.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.remote_item_id.in_(item_ids),
+                DownloadTask.status == TaskStatus.PENDING.value,
+            )
+            .values(status=TaskStatus.CANCELLED.value)
+        )
+    await db.execute(delete(Subscription).where(Subscription.id == subscription.id))
+    db.add(
+        ActivityEvent(
+            event_type="subscription_deleted",
+            comic_id=comic.id,
+            message=f"Unsubscribed from {comic.title} via external API",
+        )
+    )
+    await db.commit()
+    response.status_code = 204
+    return response
+
+
+@router.patch(
+    "/subscriptions/{subscription_id}",
+    response_model=ExternalSubscriptionStatus,
+)
+async def edit_subscription(
+    subscription_id: int,
+    body: SubscriptionEdit,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ExternalSubscriptionStatus:
+    subscription, comic = await get_subscription(db, subscription_id)
+    content_types = body.content_types or {
+        ContentType(value) for value in subscription.content_types
+    }
+    download_format = body.download_format or DownloadFormat(
+        subscription.download_format
+    )
+    strategy = body.initialization_strategy or InitializationStrategy(
+        subscription.initialization_strategy
+    )
+    impact = await reconcile_policy(
+        db,
+        subscription,
+        content_types=content_types,
+        download_format=download_format,
+        strategy=strategy,
+        apply=True,
+    )
+    db.add(
+        ActivityEvent(
+            event_type="subscription_policy_changed",
+            comic_id=subscription.comic_id,
+            message=(
+                f"Subscription {subscription.id} policy changed via external API: "
+                f"created={impact.created}, converted={impact.converted}, "
+                f"reused={impact.reused}, cancelled={impact.cancelled}"
+            ),
+        )
+    )
+    await db.commit()
+    for path_value in impact.obsolete_temporary_paths:
+        path = Path(path_value)
+        try:
+            resolved = path.resolve()
+            root = request.app.state.settings.download_dir.resolve()
+            if resolved.is_relative_to(root) and not path.is_symlink():
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if impact.wakes_downloads:
+        request.app.state.download_service.wake()
+    return status_view(
+        subscription, comic, await task_counts(db, subscription.comic_id), impact
+    )
+
+
+@router.post(
+    "/subscriptions/{subscription_id}/check",
+    response_model=CheckEnqueueView,
+    status_code=202,
+)
+async def check_subscription(
+    subscription_id: int,
+    request: Request,
+) -> CheckEnqueueView:
+    try:
+        result = await request.app.state.check_service.enqueue_one(subscription_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Subscription not found") from exc
+    return CheckEnqueueView(
+        batch_id=result.batch_id,
+        queued_count=result.queued_count,
+        created=result.created,
+    )

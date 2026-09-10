@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     )
 
     app_secret_key: SecretStr = Field(min_length=32)
+    api_token: SecretStr | None = Field(default=None, min_length=16)
     database_url: str = "sqlite+aiosqlite:////data/app.db"
     download_dir: Path = Path("/storage")
     cookie_secure: bool = False
