@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,8 +20,13 @@ class Settings(BaseSettings):
     download_dir: Path = Path("/storage")
     cookie_secure: bool = False
     session_hours: int = Field(default=24 * 14, ge=1, le=24 * 90)
-    bangumi_recommendations: bool = False
     bangumi_api_base_url: str = "https://api.bgm.tv"
+    bangumi_access_token: SecretStr | None = None
+
+    @field_validator("api_token", "bangumi_access_token", mode="before")
+    @classmethod
+    def blank_api_token_is_disabled(cls, value: object) -> object:
+        return None if value == "" else value
 
 
 @lru_cache

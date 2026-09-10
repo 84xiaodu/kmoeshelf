@@ -1,9 +1,9 @@
 # Current implementation handoff
 
-- Updated: 2026-09-06
-- Branch: `perf/lean-runtime-ci`
-- Baseline commit: working tree after `8f21b08`
-- Active phase: GHCR image publication and Compose pull deployment complete
+- Updated: 2026-09-10
+- Branch: `feat/bangumi-popular`
+- Baseline commit: working tree after `f34ab8d`
+- Active phase: Kmoe quota visibility and Bangumi subscription-source integration implemented
 
 ## Completed
 
@@ -31,7 +31,11 @@
 - Persistent `/storage` subdirectory selection, safe resumable file migration, download-claim coordination, editable subscription policy preview/reconciliation, and their Web interfaces are implemented in the current working tree.
 - The previously failed live EPUB task completed successfully at 30,880,314 bytes and its EPUB ZIP signature was verified.
 - File-based subagent memory protocol is defined in `AGENTS.md` and `docs/handoffs/README.md`; research and no-context verification handoffs prove it works without inherited chat context.
-- Current verification: 60 Python tests, 4 Chromium tests, and the Vite production build pass after the first lean-runtime patch. Download progress writes are time-throttled; default download list/SSE snapshots include every running task plus 100 recent non-running tasks with exact status counts, while selected statuses are applied to both REST and SSE and all actionable tasks remain accessible. A valid SSE update also wins over an older in-flight REST snapshot. CI/publish image events no longer duplicate builds. The rebuilt container previously returned 21 Kmoe fuzzy matches across 2 pages for a known title and zero matches on a normalized 1-page empty result for a random string; only non-sensitive counts and IDs were observed.
+- Version `0.3.0` added a bearer-token `/api/v1` subscription API and a dependency-free stdio MCP server with six agent tools; tag `v0.3.0` points to `f34ab8d`.
+- Generic `SubscriptionSource` and normalized source-item tables are implemented with a Bangumi adapter. Public or access-token-authorized wish/collect/doing/on-hold/dropped book collections can be manually synchronized, browsed and handed to Kmoe search for explicit match confirmation.
+- Per-source `sync_interval_hours` and a background `SourceSyncService` add scheduled synchronization; source management lives on its own navigation page with manual sync, interval editing and deletion.
+- Kmoe profile quota parsing now records explicit free/VIP total, used and reset-day fields without inventing unlimited fallback values. Login captures the snapshot; a CSRF-protected refresh API and dashboard/settings displays expose it.
+- Current verification: 74 Python tests, 5 Chromium tests, Vite production build, Compose validation and patch formatting pass. Download progress writes remain time-throttled; default download list/SSE snapshots include every running task plus 100 recent non-running tasks with exact status counts.
 
 ## Active work
 

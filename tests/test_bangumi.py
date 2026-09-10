@@ -2,43 +2,69 @@ from __future__ import annotations
 
 import httpx
 
-from kmoe_subscriptions.external.bangumi import BangumiClient, collect_tag_seeds
+from kmoe_subscriptions.external.bangumi import (
+    BangumiClient,
+    BangumiCollectionType,
+)
 
 
-async def _collect(transport: httpx.MockTransport):
-    async with BangumiClient(
-        base_url="https://bangumi.test",
-        transport=transport,
-    ) as client:
-        return await collect_tag_seeds(client, ["示例漫画"])
+def test_bangumi_reads_selected_user_book_collections() -> None:
+    requested_types: list[str] = []
 
-
-def test_bangumi_collects_tags_from_book_search() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v0/search/subjects"
-        assert request.url.params["limit"] == "3"
-        assert request.headers["user-agent"].startswith("kmoeshelf/")
+        assert request.headers["authorization"] == "Bearer private-token"
+        assert request.url.path == "/v0/users/reader/collections"
+        assert request.url.params["subject_type"] == "1"
+        requested_types.append(request.url.params["type"])
+        collection_type = int(request.url.params["type"])
+        subject_id = 100 + collection_type
         return httpx.Response(
             200,
             request=request,
             json={
                 "data": [
                     {
-                        "id": 42,
-                        "name": "Example",
-                        "name_cn": "示例漫画",
-                        "score": 7.8,
-                        "rank": 1200,
-                        "tags": [{"name": "百合", "count": 12}, {"name": "校园"}],
+                        "subject_id": subject_id,
+                        "subject_type": 1,
+                        "type": collection_type,
+                        "rate": 0,
+                        "tags": [],
+                        "ep_status": 0,
+                        "vol_status": 0,
+                        "updated_at": "2026-09-10T00:00:00Z",
+                        "private": False,
+                        "subject": {
+                            "id": subject_id,
+                            "name": f"Book {subject_id}",
+                            "name_cn": f"漫画 {subject_id}",
+                            "score": 8.0,
+                            "rank": subject_id,
+                            "images": {"common": f"https://lain.test/{subject_id}.jpg"},
+                        },
                     }
                 ]
             },
         )
 
+    async def collect():
+        async with BangumiClient(
+            base_url="https://bangumi.test",
+            access_token="private-token",
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            return await client.user_book_collections(
+                "reader",
+                [BangumiCollectionType.WISH, BangumiCollectionType.DOING],
+            )
+
     import asyncio
 
-    matches = asyncio.run(_collect(httpx.MockTransport(handler)))
+    collections = asyncio.run(collect())
 
-    assert matches[0].source_title == "示例漫画"
-    assert matches[0].subject.display_name == "示例漫画"
-    assert matches[0].subject.tag_names() == ["百合", "校园"]
+    assert requested_types == ["1", "3"]
+    assert [item.collection_type for item in collections] == [
+        BangumiCollectionType.WISH,
+        BangumiCollectionType.DOING,
+    ]
+    assert collections[0].subject is not None
+    assert collections[0].subject.display_name == "漫画 101"

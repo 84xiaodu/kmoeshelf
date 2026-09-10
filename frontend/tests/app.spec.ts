@@ -7,7 +7,7 @@ test("仪表盘使用完整任务计数而不是有界任务列表计数", async
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/auth/status") return json(route, { setup_required: false, authenticated: true });
     if (path === "/api/auth/me") return json(route, { authenticated: true, csrf_token: "test-csrf" });
-    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active" });
+    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active", usage: { user_level: 2, is_vip: true, free: { total_mb: 10240, used_mb: 2048, remaining_mb: 8192, reset_day: 5 }, vip: { total_mb: 20480, used_mb: 4096, remaining_mb: 16384, reset_day: 10 }, checked_at: "2026-09-10T00:00:00" } });
     if (path === "/api/subscriptions") return json(route, []);
     if (path === "/api/downloads") return json(route, {
       tasks: [],
@@ -21,6 +21,8 @@ test("仪表盘使用完整任务计数而不是有界任务列表计数", async
   const downloading = page.locator(".stat-card").filter({ hasText: "正在下载" });
   await expect(downloading.locator("strong")).toHaveText("3");
   await expect(downloading.locator("small")).toHaveText("7 个等待中");
+  const kmoe = page.locator(".stat-card").filter({ hasText: "Kmoe 会话" });
+  await expect(kmoe.locator("small")).toHaveText("剩余 24.0 GB");
 });
 
 test("较慢的 REST 快照不会覆盖较新的下载事件", async ({ page }) => {
@@ -125,6 +127,32 @@ test("下载状态筛选取回默认快照外的失败任务并提供重试", as
   await expect.poll(() => eventStatuses).toContain("failed");
 });
 
+test("管理员可添加 Bangumi 订阅源并读取想看与在看", async ({ page }) => {
+  let source: Record<string, unknown> | null = null;
+  const items = [{ id: 1, source_id: 1, external_id: "42", title: "来源漫画", original_title: "Source Comic", source_status: "wish", cover_url: null, external_url: "https://bgm.tv/subject/42", search_query: "来源漫画", first_seen_at: "2026-09-10T00:00:00", last_seen_at: "2026-09-10T00:00:00" }];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/auth/status") return json(route, { setup_required: false, authenticated: true });
+    if (path === "/api/auth/me") return json(route, { authenticated: true, csrf_token: "test-csrf" });
+    if (path === "/api/kmoe/status") return json(route, { connected: true, email: "reader@example.com", mirror: "mox.moe", status: "active", usage: null });
+    if (path === "/api/sources" && request.method() === "GET") return json(route, source ? [source] : []);
+    if (path === "/api/sources" && request.method() === "POST") { source = { id: 1, source_type: "bangumi", name: "我的 Bangumi", enabled: true, username: "reader", collection_types: ["wish", "doing"], sync_interval_hours: 24, item_count: 0, last_attempt_at: null, last_success_at: null, last_error_code: null, last_error_message: null }; return json(route, source, 201); }
+    if (path === "/api/sources/1/sync") { source = { ...(source ?? {}), item_count: 1, last_success_at: "2026-09-10T00:00:00" }; return json(route, { source, imported_count: 1 }); }
+    if (path === "/api/sources/1/items") return json(route, items);
+    return json(route, { detail: `Unhandled ${request.method()} ${path}` }, 500);
+  });
+
+  await page.goto("/#/sources");
+  await page.getByLabel("Bangumi 用户名").fill("reader");
+  await page.getByRole("button", { name: "添加并同步" }).click();
+
+  await expect(page.getByText("已读取 1 个 Bangumi 收藏条目")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "来源漫画" })).toBeVisible();
+  await expect(page.locator(".source-item").getByText("想看", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "在 Kmoe 搜索" })).toBeEnabled();
+});
+
 test("管理员可完成初始化、Kmoe 登录、搜索和订阅", async ({ page }) => {
   let setupRequired = true;
   let connected = false;
@@ -173,7 +201,7 @@ test("管理员可完成初始化、Kmoe 登录、搜索和订阅", async ({ pag
   await page.getByRole("button", { name: "确认并开始搬迁" }).click();
   await expect(page.getByText("目录迁移已开始")).toBeVisible();
 
-  await page.getByRole("link", { name: "发现漫画" }).click();
+  await page.getByRole("link", { name: "搜索漫画" }).click();
   await page.getByLabel("漫画关键词").fill("星海");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await page.getByRole("button", { name: /星海书简/ }).click();

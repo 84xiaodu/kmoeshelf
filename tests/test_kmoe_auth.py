@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
@@ -8,10 +9,14 @@ import pytest
 from kmoe_subscriptions.kmoe.auth import (
     detect_login_endpoint,
     login,
+    parse_account_usage,
     parse_login_response,
 )
 from kmoe_subscriptions.kmoe.client import KmoeClient
 from kmoe_subscriptions.kmoe.errors import InvalidCredentials
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "kmoe"
 
 
 def test_prefers_current_login_endpoint() -> None:
@@ -25,6 +30,25 @@ def test_prefers_current_login_endpoint() -> None:
 def test_maps_invalid_credentials() -> None:
     with pytest.raises(InvalidCredentials):
         parse_login_response({"msgid": "e400"})
+
+
+def test_parses_profile_quota_without_inventing_missing_values() -> None:
+    usage = parse_account_usage(
+        (FIXTURES / "profile_with_quota.html").read_text(encoding="utf-8")
+    )
+
+    assert usage is not None
+    assert usage.user_level == 2
+    assert usage.is_vip is True
+    assert usage.free is not None
+    assert usage.free.total_mb == 10240
+    assert usage.free.used_mb == 2048
+    assert usage.free.reset_day == 5
+    assert usage.vip is not None
+    assert usage.vip.total_mb == 20480
+    assert usage.vip.used_mb == 4096
+    assert usage.vip.reset_day == 10
+    assert parse_account_usage('<a href="/logout.php">out</a>') is None
 
 
 def test_login_posts_once_and_validates_profile() -> None:

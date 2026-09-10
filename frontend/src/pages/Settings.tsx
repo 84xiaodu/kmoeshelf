@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, messageOf } from "../api";
-import type { AppSettings, DirectoryListing, KmoeStatus, StorageMigration, StoragePreview, StorageStatus } from "../types";
+import type { AppSettings, DirectoryListing, KmoeQuotaUsage, KmoeStatus, StorageMigration, StoragePreview, StorageStatus } from "../types";
 import { Alert, formatBytes, Spinner } from "../ui";
 
 const mirrors = ["mox.moe", "kxo.moe", "kxx.moe", "kzz.moe", "koz.moe"];
@@ -11,6 +11,12 @@ const phaseLabels: Record<StorageMigration["phase"], string> = {
 };
 
 function joinPath(parent: string, child: string) { return parent ? `${parent}/${child}` : child; }
+function quotaAmount(value: number | null) { return value === null ? "未知" : value >= 1024 ? `${(value / 1024).toFixed(1)} GB` : `${value.toFixed(0)} MB`; }
+
+function QuotaTier({ label, usage }: { label: string; usage: KmoeQuotaUsage }) {
+  const progress = usage.total_mb && usage.used_mb !== null ? Math.min(usage.total_mb, usage.used_mb) : 0;
+  return <div className="quota-tier"><div><strong>{label}</strong><span>剩余 {quotaAmount(usage.remaining_mb)}{usage.reset_day ? ` · 每月 ${usage.reset_day} 日重置` : ""}</span></div>{usage.total_mb !== null && <progress max={usage.total_mb} value={progress} />}<small>已用 {quotaAmount(usage.used_mb)} / {quotaAmount(usage.total_mb)}</small></div>;
+}
 
 export default function Settings({ status, onStatus }: { status: KmoeStatus | null; onStatus: (status: KmoeStatus) => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -58,6 +64,9 @@ export default function Settings({ status, onStatus }: { status: KmoeStatus | nu
     event.preventDefault();
     void run(async () => { const next = await api.kmoeLogin(email, password); onStatus(next); setPassword(""); }, "Kmoe 账号已连接，会话已加密保存");
   }
+  function refreshUsage() {
+    void run(async () => { onStatus(await api.refreshKmoeStatus()); }, "Kmoe 用量已刷新");
+  }
   function save(event: FormEvent) {
     event.preventDefault(); if (!settings) return;
     void run(async () => { setSettings(await api.updateSettings(settings)); }, "运行设置已保存，下载并发数已生效");
@@ -92,7 +101,11 @@ export default function Settings({ status, onStatus }: { status: KmoeStatus | nu
     <header className="page-head"><div><p className="eyebrow">系统配置</p><h1>设置</h1><p>账号密码不会写入日志或以明文保存。</p></div></header>
     {error && <Alert>{error}</Alert>}{notice && <Alert tone="success">{notice}</Alert>}
     <div className="settings-grid">
-      <article className="panel settings-card"><div className="settings-heading"><div><p className="eyebrow">远端账号</p><h2>Kmoe 登录</h2></div><span className={`pill ${status?.connected ? "pill-green" : ""}`}>{status?.connected ? "已连接" : "未连接"}</span></div>{status?.connected && <p className="account-summary"><strong>{status.email}</strong><span>当前镜像 {status.mirror}</span></p>}<form className="stack-form" onSubmit={connect}><label>邮箱<input required type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label>{status?.connected ? "重新登录密码" : "密码"}<input required type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><button className="button button-primary" disabled={busy}>{status?.connected ? "重新登录" : "连接 Kmoe"}</button></form></article>
+      <article className="panel settings-card">
+        <div className="settings-heading"><div><p className="eyebrow">远端账号</p><h2>Kmoe 登录</h2></div><span className={`pill ${status?.connected ? "pill-green" : ""}`}>{status?.connected ? "已连接" : "未连接"}</span></div>
+        {status?.connected && <><p className="account-summary"><strong>{status.email}</strong><span>当前镜像 {status.mirror}{status.usage?.user_level !== null && status.usage?.user_level !== undefined ? ` · Lv${status.usage.user_level}` : ""}{status.usage?.is_vip ? " · VIP" : ""}</span></p>{status.usage ? <div className="quota-summary">{status.usage.free && <QuotaTier label="免费额度" usage={status.usage.free} />}{status.usage.vip && <QuotaTier label="VIP 额度" usage={status.usage.vip} />}<button type="button" className="text-button" disabled={busy} onClick={refreshUsage}>刷新用量</button></div> : <p className="quota-unknown">当前页面未解析到额度信息。<button type="button" className="text-button" disabled={busy} onClick={refreshUsage}>重新读取</button></p>}</>}
+        <form className="stack-form" onSubmit={connect}><label>邮箱<input required type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label>{status?.connected ? "重新登录密码" : "密码"}<input required type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><button className="button button-primary" disabled={busy}>{status?.connected ? "重新登录" : "连接 Kmoe"}</button></form>
+      </article>
       <article className="panel settings-card"><p className="eyebrow">自动化</p><h2>检查与下载</h2>{!settings ? <Spinner /> : <form className="stack-form" onSubmit={save}><div className="form-row"><label>检查间隔（小时）<input type="number" min="1" max="720" value={settings.check_interval_hours} onChange={(e) => setSettings({ ...settings, check_interval_hours: Number(e.target.value) })} /></label><label>下载并发数<input type="number" min="1" max="8" value={settings.download_concurrency} onChange={(e) => setSettings({ ...settings, download_concurrency: Number(e.target.value) })} /></label></div><div className="form-row"><label>失败重试次数<input type="number" min="0" max="10" value={settings.max_download_retries} onChange={(e) => setSettings({ ...settings, max_download_retries: Number(e.target.value) })} /></label><label>首选镜像<select value={settings.preferred_mirror} onChange={(e) => setSettings({ ...settings, preferred_mirror: e.target.value })}>{mirrors.map((mirror) => <option key={mirror}>{mirror}</option>)}</select></label></div><small>首选镜像在下次 Kmoe 登录时使用；当前有效会话保持原镜像。</small><button className="button button-primary" disabled={busy}>保存运行设置</button></form>}</article>
       <article className="panel settings-card storage-card"><div className="settings-heading"><div><p className="eyebrow">本地存储</p><h2>下载根目录</h2></div>{storage && <span className={`pill ${storage.writable ? "pill-green" : ""}`}>{storage.writable ? "可写" : "不可写"}</span>}</div>
         {!storage ? <Spinner /> : <><div className="storage-summary"><span><small>宿主机挂载点（容器内）</small><code>{storage.mounted_root}</code></span><span><small>当前保存位置</small><code>{storage.active_subpath || "/"}</code></span><span><small>实际路径</small><code>{storage.effective_path}</code></span></div>

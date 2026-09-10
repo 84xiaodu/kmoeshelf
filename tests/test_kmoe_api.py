@@ -47,7 +47,11 @@ def test_admin_can_connect_kmoe_without_storing_password(tmp_path: Path) -> None
                 headers={"Set-Cookie": "session=encrypted-me; Path=/"},
             )
         if request.url.path == "/my.php":
-            return httpx.Response(200, request=request, text='<a href="/logout.php">out</a>')
+            return httpx.Response(
+                200,
+                request=request,
+                text=fixture_text("profile_with_quota.html"),
+            )
         raise AssertionError(request.url)
 
     app.state.kmoe_client_factory = lambda: KmoeClient(
@@ -65,13 +69,24 @@ def test_admin_can_connect_kmoe_without_storing_password(tmp_path: Path) -> None
             headers={"X-CSRF-Token": csrf},
         )
         assert response.status_code == 200
-        assert response.json() == {
-            "connected": True,
-            "email": "reader@example.com",
-            "mirror": "mox.moe",
-            "status": "active",
+        payload = response.json()
+        assert payload["connected"] is True
+        assert payload["email"] == "reader@example.com"
+        assert payload["mirror"] == "mox.moe"
+        assert payload["status"] == "active"
+        assert payload["usage"]["user_level"] == 2
+        assert payload["usage"]["is_vip"] is True
+        assert payload["usage"]["free"] == {
+            "total_mb": 10240.0,
+            "used_mb": 2048.0,
+            "remaining_mb": 8192.0,
+            "reset_day": 5,
         }
-        assert web.get("/api/kmoe/status").json()["connected"] is True
+        assert payload["usage"]["vip"]["remaining_mb"] == 16384.0
+        assert web.get("/api/kmoe/status").json()["usage"] == payload["usage"]
+        refreshed = web.post("/api/kmoe/status/refresh", headers={"X-CSRF-Token": csrf})
+        assert refreshed.status_code == 200
+        assert refreshed.json()["usage"]["free"]["used_mb"] == 2048.0
 
     with sqlite3.connect(database_path) as connection:
         encrypted = connection.execute(
@@ -208,19 +223,10 @@ def test_admin_searches_and_reads_details_with_saved_cookie(tmp_path: Path) -> N
         assert empty.json()["total_pages"] == 1
         assert empty.json()["results"] == []
 
-        recommendations = web.get(
-            "/api/kmoe/recommendations", params={"section_limit": 1}
-        )
-        assert recommendations.status_code == 200
-        recommendation = recommendations.json()["sections"][0]
-        assert recommendation["query"] == "異世界"
-        assert recommendation["results"][0]["remote_id"] == "50076"
-
         assert search_calls == [
             ("kxx.moe", "示例", None),
             ("kxx.moe", "示例", "2"),
             ("kxx.moe", "missing-random-query", None),
-            ("kxx.moe", "異世界", None),
         ]
         assert discovery_calls == 1
 

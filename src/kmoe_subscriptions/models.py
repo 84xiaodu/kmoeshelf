@@ -56,6 +56,15 @@ class KmoeCredential(Base):
     encrypted_cookies: Mapped[str] = mapped_column(Text)
     active_mirror: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(32), default="active")
+    user_level: Mapped[int | None] = mapped_column(Integer)
+    is_vip: Mapped[bool | None] = mapped_column(Boolean)
+    free_quota_total_mb: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    free_quota_used_mb: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    free_quota_reset_day: Mapped[int | None] = mapped_column(Integer)
+    vip_quota_total_mb: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    vip_quota_used_mb: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    vip_quota_reset_day: Mapped[int | None] = mapped_column(Integer)
+    quota_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_validated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -78,6 +87,10 @@ class CheckStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class SourceKind(StrEnum):
+    BANGUMI = "bangumi"
 
 
 class StorageMigrationPhase(StrEnum):
@@ -132,6 +145,47 @@ class Subscription(Base):
     last_error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class SubscriptionSource(Base):
+    __tablename__ = "subscription_sources"
+    __table_args__ = (
+        UniqueConstraint("source_type", "name", name="uq_subscription_source_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sync_interval_hours: Mapped[int] = mapped_column(Integer, default=24)
+    config: Mapped[dict[str, object]] = mapped_column(JSON)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_error_code: Mapped[str | None] = mapped_column(String(64))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class SubscriptionSourceItem(Base):
+    __tablename__ = "subscription_source_items"
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_source_item_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("subscription_sources.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(128))
+    title: Mapped[str] = mapped_column(String(255))
+    original_title: Mapped[str | None] = mapped_column(String(255))
+    source_status: Mapped[str] = mapped_column(String(32), index=True)
+    cover_url: Mapped[str | None] = mapped_column(Text)
+    external_url: Mapped[str] = mapped_column(Text)
+    search_query: Mapped[str] = mapped_column(String(255))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class AppSetting(Base):

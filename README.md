@@ -5,7 +5,7 @@
 ## 功能
 
 - 单管理员初始化、登录、CSRF 防护与管理员改密。
-- 加密保存一个 Kmoe 会话；Kmoe 密码不落盘。
+- 加密保存一个 Kmoe 会话；Kmoe 密码不落盘，并显示免费/VIP 额度用量。
 - 漫画搜索、详情和单行本/番外/连载话分类。
 - `仅追新` 与 `补齐已有内容` 两种订阅策略。
 - 默认每 6 小时自动检查，也可全局或单订阅立即检查。
@@ -13,7 +13,7 @@
 - 宿主机只挂载一次存储根目录，Web 中可选择其下目录并自动搬迁已完成文件。
 - 订阅可随时编辑内容类型、EPUB/MOBI 格式和仅追新/补齐策略，并先预览任务影响。
 - SSE 实时下载状态，以及响应式 React 管理界面。
-- 可选 Bangumi 推荐增强：开启后会把已订阅漫画标题发送到 Bangumi 公共 API，用匹配标签生成更精准的发现入口。
+- 独立 Bangumi 订阅源：读取公开或授权可见的想看、看过、在看、搁置与抛弃书籍收藏，人工确认后再订阅 Kmoe，并支持按周期自动同步。
 - SQLite 升级前完整性校验备份与 Docker Compose 部署。
 
 ## Docker 启动
@@ -29,7 +29,9 @@ docker compose ps
 
 Compose 默认从公开镜像 `ghcr.io/84xiaodu/kmoeshelf:latest` 拉取，无需登录 GHCR。服务默认监听 <http://localhost:8000>。首次打开会要求创建管理员，之后在“设置”中登录 Kmoe。
 
-数据保存在 `./data`。漫画文件默认保存在 `./downloads`，也可在 `.env` 用 `KMOE_STORAGE_HOST_ROOT` 指向 NAS 或其他宿主机目录；容器统一挂载为 `/storage`，之后可在 Web“设置”中自由选择其下的相对目录。务必保留 `.env` 中的原密钥；更换密钥会使现有会话和加密 Kmoe Cookie 失效。若希望推荐更精准，可将 `.env` 中 `KMOE_BANGUMI_RECOMMENDATIONS=true`，系统会用已订阅标题查询 Bangumi 公共 API 并把返回标签再映射到 Kmoe 搜索。详细升级、HTTPS、备份和恢复步骤见 [运维手册](docs/operations.md)。
+数据保存在 `./data`。漫画文件默认保存在 `./downloads`，也可在 `.env` 用 `KMOE_STORAGE_HOST_ROOT` 指向 NAS 或其他宿主机目录；容器统一挂载为 `/storage`，之后可在 Web“设置”中自由选择其下的相对目录。务必保留 `.env` 中的原密钥；更换密钥会使现有会话和加密 Kmoe Cookie 失效。
+
+Bangumi 订阅源读取公开收藏时只需用户名；如需读取自己有权访问的私密收藏，可在 `.env` 设置 `KMOE_BANGUMI_ACCESS_TOKEN`。详细升级、HTTPS、备份和恢复步骤见 [运维手册](docs/operations.md)。
 
 ## 外部 API
 

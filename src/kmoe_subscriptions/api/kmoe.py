@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
@@ -9,14 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import get_db, get_settings, require_csrf, require_same_origin, require_session
 from ..config import Settings
-from ..external.bangumi import collect_tag_seeds
-from ..kmoe.auth import login
+from ..kmoe.auth import login, validate_session
 from ..kmoe.catalog import SearchTargetCache, get_comic_details, search_catalog
 from ..kmoe.client import DEFAULT_MIRRORS, KmoeClient
 from ..kmoe.credentials import decrypt_cookies, encrypt_cookies
 from ..kmoe.errors import AuthenticationExpired, KmoeError
-from ..kmoe.schemas import ComicDetails, ComicSummary, SearchPage
-from ..models import AppSetting, Comic, KmoeCredential, Subscription
+from ..kmoe.schemas import ComicDetails, KmoeAccountUsage, SearchPage
+from ..models import AppSetting, KmoeCredential
 from ..security import utcnow
 
 
@@ -38,26 +39,97 @@ class KmoeLoginInput(BaseModel):
         return value
 
 
+class QuotaUsageView(BaseModel):
+    total_mb: float | None
+    used_mb: float | None
+    remaining_mb: float | None
+    reset_day: int | None
+
+
+class KmoeUsageView(BaseModel):
+    user_level: int | None
+    is_vip: bool | None
+    free: QuotaUsageView | None
+    vip: QuotaUsageView | None
+    checked_at: datetime | None
+
+
 class KmoeStatus(BaseModel):
     connected: bool
     email: str | None = None
     mirror: str | None = None
     status: str | None = None
-
-
-class RecommendationSection(BaseModel):
-    title: str
-    reason: str
-    query: str
-    results: tuple[ComicSummary, ...] = ()
-
-
-class RecommendationPage(BaseModel):
-    sections: tuple[RecommendationSection, ...] = ()
+    usage: KmoeUsageView | None = None
 
 
 def kmoe_client(request: Request) -> KmoeClient:
     return request.app.state.kmoe_client_factory()
+
+
+def quota_view(
+    total: Decimal | None, used: Decimal | None, reset_day: int | None
+) -> QuotaUsageView | None:
+    if total is None and used is None and reset_day is None:
+        return None
+    total_value = float(total) if total is not None else None
+    used_value = float(used) if used is not None else None
+    remaining = (
+        max(0.0, total_value - used_value)
+        if total_value is not None and used_value is not None
+        else None
+    )
+    return QuotaUsageView(
+        total_mb=total_value,
+        used_mb=used_value,
+        remaining_mb=remaining,
+        reset_day=reset_day,
+    )
+
+
+def usage_view(credential: KmoeCredential) -> KmoeUsageView | None:
+    free = quota_view(
+        credential.free_quota_total_mb,
+        credential.free_quota_used_mb,
+        credential.free_quota_reset_day,
+    )
+    vip = quota_view(
+        credential.vip_quota_total_mb,
+        credential.vip_quota_used_mb,
+        credential.vip_quota_reset_day,
+    )
+    if free is None and vip is None and credential.user_level is None:
+        return None
+    return KmoeUsageView(
+        user_level=credential.user_level,
+        is_vip=credential.is_vip,
+        free=free,
+        vip=vip,
+        checked_at=credential.quota_checked_at,
+    )
+
+
+def status_view(credential: KmoeCredential) -> KmoeStatus:
+    return KmoeStatus(
+        connected=credential.status == "active",
+        email=credential.email,
+        mirror=credential.active_mirror,
+        status=credential.status,
+        usage=usage_view(credential),
+    )
+
+
+def apply_usage(
+    credential: KmoeCredential, usage: KmoeAccountUsage | None
+) -> None:
+    credential.user_level = usage.user_level if usage else None
+    credential.is_vip = usage.is_vip if usage else None
+    credential.free_quota_total_mb = usage.free.total_mb if usage and usage.free else None
+    credential.free_quota_used_mb = usage.free.used_mb if usage and usage.free else None
+    credential.free_quota_reset_day = usage.free.reset_day if usage and usage.free else None
+    credential.vip_quota_total_mb = usage.vip.total_mb if usage and usage.vip else None
+    credential.vip_quota_used_mb = usage.vip.used_mb if usage and usage.vip else None
+    credential.vip_quota_reset_day = usage.vip.reset_day if usage and usage.vip else None
+    credential.quota_checked_at = utcnow()
 
 
 def error_status(code: str) -> int:
@@ -117,12 +189,30 @@ async def status(db: Annotated[AsyncSession, Depends(get_db)]) -> KmoeStatus:
     credential = await db.get(KmoeCredential, 1)
     if credential is None:
         return KmoeStatus(connected=False)
-    return KmoeStatus(
-        connected=credential.status == "active",
-        email=credential.email,
-        mirror=credential.active_mirror,
-        status=credential.status,
-    )
+    return status_view(credential)
+
+
+@router.post(
+    "/status/refresh",
+    response_model=KmoeStatus,
+    dependencies=[Depends(require_same_origin), Depends(require_csrf)],
+)
+async def refresh_status(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> KmoeStatus:
+    client, credential = await saved_client(request, settings, db)
+    try:
+        async with client:
+            usage = await validate_session(client)
+    except KmoeError as exc:
+        await raise_kmoe_error(exc, db=db, credential=credential)
+    apply_usage(credential, usage)
+    credential.status = "active"
+    credential.last_validated_at = utcnow()
+    await db.commit()
+    return status_view(credential)
 
 
 @router.post(
@@ -165,13 +255,9 @@ async def connect(
     credential.active_mirror = authenticated.mirror
     credential.status = "active"
     credential.last_validated_at = utcnow()
+    apply_usage(credential, authenticated.usage)
     await db.commit()
-    return KmoeStatus(
-        connected=True,
-        email=credential.email,
-        mirror=credential.active_mirror,
-        status=credential.status,
-    )
+    return status_view(credential)
 
 
 @router.get(
@@ -199,108 +285,6 @@ async def search(
     except KmoeError as exc:
         target_cache.invalidate()
         await raise_kmoe_error(exc, db=db, credential=credential)
-
-
-@router.get(
-    "/recommendations",
-    response_model=RecommendationPage,
-    dependencies=[Depends(require_session)],
-)
-async def recommendations(
-    request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-    section_limit: Annotated[int, Query(ge=1, le=4)] = 3,
-    per_section: Annotated[int, Query(ge=1, le=12)] = 6,
-) -> RecommendationPage:
-    client, credential = await saved_client(request, settings, db)
-    target_cache: SearchTargetCache = request.app.state.search_target_cache
-    subscribed_rows = await db.execute(
-        select(Comic.remote_id, Comic.title, Comic.author)
-        .join(Subscription, Subscription.comic_id == Comic.id)
-        .order_by(Subscription.id.desc())
-    )
-    excluded: set[str] = set()
-    title_seeds: list[str] = []
-    author_seeds: list[str] = []
-    for remote_id, title, author in subscribed_rows:
-        excluded.add(remote_id)
-        if title and title not in title_seeds:
-            title_seeds.append(title)
-        if author and author not in author_seeds:
-            author_seeds.append(author)
-
-    seed_specs = []
-    if settings.bangumi_recommendations and title_seeds:
-        try:
-            bangumi_factory = request.app.state.bangumi_client_factory
-            async with bangumi_factory() as bangumi:
-                for match in await collect_tag_seeds(bangumi, title_seeds):
-                    for tag in match.subject.tag_names()[:3]:
-                        if len(tag) < 2 or tag in {"漫画", "コミック"}:
-                            continue
-                        seed_specs.append(
-                            (
-                                tag,
-                                f"Bangumi：{tag}",
-                                f"根据你订阅的《{match.source_title}》在 Bangumi 上匹配到的标签",
-                            )
-                        )
-        except Exception:
-            seed_specs = []
-
-    seed_specs.extend(
-        (author, "同作者作品", f"你已订阅过 {author} 的作品")
-        for author in author_seeds[:2]
-    )
-    seed_specs.extend(
-        [
-            ("異世界", "异世界题材", "适合想找轻松冒险与转生题材时浏览"),
-            ("戀愛", "恋爱与日常", "从恋爱、校园和日常关键词中挑选"),
-            ("懸疑", "悬疑与剧情", "偏剧情向作品的发现入口"),
-            ("完結", "完结作品", "适合一次性补完的书单入口"),
-        ]
-    )
-
-    sections: list[RecommendationSection] = []
-    seen_queries: set[str] = set()
-    seen_results: set[str] = set(excluded)
-    try:
-        async with client:
-            for query, title, reason in seed_specs:
-                if query in seen_queries:
-                    continue
-                seen_queries.add(query)
-                page = await search_catalog(
-                    client,
-                    query=query,
-                    page=1,
-                    target_cache=target_cache,
-                )
-                results = []
-                for comic in page.results:
-                    if comic.remote_id in seen_results:
-                        continue
-                    seen_results.add(comic.remote_id)
-                    results.append(comic)
-                    if len(results) >= per_section:
-                        break
-                if results:
-                    sections.append(
-                        RecommendationSection(
-                            title=title,
-                            reason=reason,
-                            query=query,
-                            results=tuple(results),
-                        )
-                    )
-                if len(sections) >= section_limit:
-                    break
-    except KmoeError as exc:
-        target_cache.invalidate()
-        await raise_kmoe_error(exc, db=db, credential=credential)
-
-    return RecommendationPage(sections=tuple(sections))
 
 
 @router.get(

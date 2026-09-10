@@ -103,6 +103,16 @@ def auth(token: str | None = API_TOKEN) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def test_blank_optional_tokens_are_treated_as_disabled() -> None:
+    settings = Settings(
+        app_secret_key="s" * 48,
+        api_token="",
+        bangumi_access_token="",
+    )
+    assert settings.api_token is None
+    assert settings.bangumi_access_token is None
+
+
 def test_external_api_is_disabled_without_token(tmp_path: Path) -> None:
     with connected_app(tmp_path, api_token=None) as web:
         response = web.get("/api/v1/subscriptions")

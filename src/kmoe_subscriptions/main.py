@@ -21,6 +21,7 @@ from .api.downloads import router as downloads_router
 from .api.external import router as external_router
 from .api.kmoe import router as kmoe_router
 from .api.settings import router as settings_router
+from .api.sources import router as sources_router
 from .api.storage import router as storage_router
 from .api.subscriptions import router as subscriptions_router
 from .config import Settings, get_settings
@@ -30,6 +31,7 @@ from .kmoe.catalog import SearchTargetCache
 from .kmoe.client import KmoeClient
 from .services.checks import CheckService
 from .services.downloads import DownloadService
+from .services.source_sync import SourceSyncService
 from .services.storage_migrations import StorageMigrationService
 
 
@@ -119,12 +121,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lambda: app.state.kmoe_client_factory(),
             lambda: app.state.transfer_client_factory(),
         )
+        app.state.source_sync_service = SourceSyncService(
+            app.state.database,
+            resolved,
+            lambda: app.state.bangumi_client_factory(),
+        )
         try:
             await app.state.storage_migration_service.start()
             await app.state.check_service.start()
             await app.state.download_service.start()
+            await app.state.source_sync_service.start()
             yield
         finally:
+            await app.state.source_sync_service.stop()
             await app.state.download_service.stop()
             await app.state.check_service.stop()
             await app.state.storage_migration_service.stop()
@@ -135,7 +144,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.search_target_cache = SearchTargetCache()
     app.state.kmoe_client_factory = KmoeClient
     app.state.bangumi_client_factory = lambda: BangumiClient(
-        base_url=resolved.bangumi_api_base_url
+        base_url=resolved.bangumi_api_base_url,
+        access_token=(
+            resolved.bangumi_access_token.get_secret_value()
+            if resolved.bangumi_access_token is not None
+            else None
+        ),
     )
     app.state.download_service_factory = DownloadService
     app.state.storage_migration_service_factory = StorageMigrationService
@@ -149,6 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(external_router)
     app.include_router(kmoe_router)
     app.include_router(settings_router)
+    app.include_router(sources_router)
     app.include_router(storage_router)
     app.include_router(subscriptions_router)
 

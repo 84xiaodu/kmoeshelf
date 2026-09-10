@@ -21,6 +21,19 @@ class AdapterModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class QuotaUsage(AdapterModel):
+    total_mb: Decimal | None = Field(default=None, ge=0)
+    used_mb: Decimal | None = Field(default=None, ge=0)
+    reset_day: int | None = Field(default=None, ge=1, le=31)
+
+
+class KmoeAccountUsage(AdapterModel):
+    user_level: int | None = Field(default=None, ge=0)
+    is_vip: bool | None = None
+    free: QuotaUsage | None = None
+    vip: QuotaUsage | None = None
+
+
 class ComicSummary(AdapterModel):
     remote_id: str = Field(min_length=1)
     title: str = Field(min_length=1)

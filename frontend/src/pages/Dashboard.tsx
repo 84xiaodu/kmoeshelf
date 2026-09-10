@@ -27,6 +27,7 @@ export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
     pending: downloads.counts.pending,
   }), [subscriptions, downloads.counts]);
   const next = subscriptions.filter((item) => item.next_check_at).sort((a, b) => a.next_check_at!.localeCompare(b.next_check_at!))[0]?.next_check_at ?? null;
+  const quotaRemaining = remainingQuota(kmoe);
   async function checkAll() {
     setError(""); setNotice("");
     try {
@@ -42,7 +43,7 @@ export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
         <article className="stat-card accent"><span>启用订阅</span><strong>{counts.active}</strong><small>{subscriptions.length} 个订阅总计</small></article>
         <article className="stat-card"><span>正在下载</span><strong>{counts.running}</strong><small>{counts.pending} 个等待中</small></article>
         <article className="stat-card"><span>异常订阅</span><strong>{counts.errors}</strong><small>{counts.errors ? "需要检查错误信息" : "状态良好"}</small></article>
-        <article className="stat-card"><span>Kmoe 会话</span><strong className="status-word">{kmoe?.connected ? "已连接" : "需登录"}</strong><small>{kmoe?.mirror ?? "尚未选择镜像"}</small></article>
+        <article className="stat-card"><span>Kmoe 会话</span><strong className="status-word">{kmoe?.connected ? "已连接" : "需登录"}</strong><small>{quotaRemaining === null ? (kmoe?.mirror ?? "尚未选择镜像") : `剩余 ${formatQuota(quotaRemaining)}`}</small></article>
       </div>
       <div className="dashboard-grid">
         <article className="panel next-check"><p className="eyebrow">下一次自动检查</p><h2>{formatDate(next)}</h2><p>检查间隔可在设置中调整；手动检查不会改变已有基线。</p></article>
@@ -52,6 +53,16 @@ export default function Dashboard({ kmoe }: { kmoe: KmoeStatus | null }) {
       </div>
     </>}
   </section>;
+}
+
+function remainingQuota(status: KmoeStatus | null) {
+  const free = status?.usage?.free?.remaining_mb;
+  const vip = status?.usage?.vip?.remaining_mb;
+  return free == null && vip == null ? null : (free ?? 0) + (vip ?? 0);
+}
+
+function formatQuota(megabytes: number) {
+  return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(0)} MB`;
 }
 
 const statusLabel = { pending: "等待中", running: "下载中", completed: "已完成", failed: "失败", cancelled: "已取消" };

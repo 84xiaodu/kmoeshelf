@@ -6,13 +6,14 @@ import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Search from "./pages/Search";
+import Sources from "./pages/Sources";
 import Subscriptions from "./pages/Subscriptions";
 import Downloads from "./pages/Downloads";
 import Settings from "./pages/Settings";
 
 const pages = [
-  ["dashboard", "概览", "⌂"], ["search", "发现漫画", "⌕"], ["subscriptions", "我的订阅", "▤"],
-  ["downloads", "下载任务", "⇣"], ["settings", "设置", "⚙"],
+  ["dashboard", "概览", "⌂"], ["search", "搜索漫画", "⌕"],
+  ["sources", "订阅源", "◎"], ["subscriptions", "我的订阅", "▤"], ["downloads", "下载任务", "⇣"], ["settings", "设置", "⚙"],
 ] as const;
 
 function currentPage() {
@@ -63,6 +64,7 @@ export default function App() {
       <header className="mobile-header"><div className="brand"><span className="brand-seal">K</span><span>Kmoe 书架</span></div><select aria-label="页面" value={page} onChange={(e) => { location.hash = `#/${e.target.value}`; }}>{pages.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></header>
       {page === "dashboard" && <Dashboard kmoe={kmoe} />}
       {page === "search" && <Search connected={connected} />}
+      {page === "sources" && <Sources connected={connected} />}
       {page === "subscriptions" && <Subscriptions />}
       {page === "downloads" && <Downloads />}
       {page === "settings" && <Settings status={kmoe} onStatus={setKmoe} />}

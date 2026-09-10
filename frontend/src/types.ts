@@ -23,11 +23,27 @@ export interface AuthResult {
   csrf_token: string;
 }
 
+export interface KmoeQuotaUsage {
+  total_mb: number | null;
+  used_mb: number | null;
+  remaining_mb: number | null;
+  reset_day: number | null;
+}
+
+export interface KmoeUsage {
+  user_level: number | null;
+  is_vip: boolean | null;
+  free: KmoeQuotaUsage | null;
+  vip: KmoeQuotaUsage | null;
+  checked_at: string | null;
+}
+
 export interface KmoeStatus {
   connected: boolean;
   email: string | null;
   mirror: string | null;
   status: string | null;
+  usage: KmoeUsage | null;
 }
 
 export interface ComicSummary {
@@ -61,15 +77,40 @@ export interface SearchPage {
   results: ComicSummary[];
 }
 
-export interface RecommendationSection {
-  title: string;
-  reason: string;
-  query: string;
-  results: ComicSummary[];
+export type BangumiCollectionType = "wish" | "collect" | "doing" | "on_hold" | "dropped";
+
+export interface SubscriptionSource {
+  id: number;
+  source_type: "bangumi";
+  name: string;
+  enabled: boolean;
+  username: string;
+  collection_types: BangumiCollectionType[];
+  sync_interval_hours: number;
+  item_count: number;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
 }
 
-export interface RecommendationPage {
-  sections: RecommendationSection[];
+export interface SubscriptionSourceItem {
+  id: number;
+  source_id: number;
+  external_id: string;
+  title: string;
+  original_title: string | null;
+  source_status: BangumiCollectionType;
+  cover_url: string | null;
+  external_url: string;
+  search_query: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface SourceSync {
+  source: SubscriptionSource;
+  imported_count: number;
 }
 
 export interface Subscription {

@@ -37,6 +37,16 @@ Compose 默认拉取公开镜像 `ghcr.io/84xiaodu/kmoeshelf:latest`，无需登
 
 `KMOE_APP_SECRET_KEY` 用于派生会话哈希和 Kmoe Cookie 加密密钥。丢失或更换它会使现有管理会话失效，并使已保存的 Kmoe 会话无法解密；恢复部署时必须同时恢复原密钥。
 
+可选集成配置：
+
+| 变量 | 用途 |
+| --- | --- |
+| `KMOE_API_TOKEN` | 开启 `/api/v1` 外部接口；留空时关闭 |
+| `KMOE_BANGUMI_API_BASE_URL` | Bangumi API 根地址；默认 `https://api.bgm.tv` |
+| `KMOE_BANGUMI_ACCESS_TOKEN` | 可选 Bangumi Access Token，用于读取调用者有权访问的私密收藏 |
+
+Bangumi Token 只传入应用内存，不写入数据库。订阅源读取公开收藏时不需要 Token。
+
 `KMOE_STORAGE_HOST_ROOT` 只在宿主机部署时设置一次。例如 Linux/NAS 可填写 `/volume1/media/manga`，Docker Desktop for Windows 可填写 `D:/Media/Manga`。应用只看到容器内固定的 `/storage`，不能从 Web 访问该挂载点之外的宿主机路径。
 
 在 Web“设置 → 下载根目录”中选择的是 `/storage` 下的相对目录。切换前会显示受管文件数量与容量；确认后，系统暂停领取新下载，等待运行中的下载结束，复制并校验已完成文件，原子切换数据库路径，再清理旧的受管文件。迁移失败时原目录保持有效；若失败发生在清理阶段，新目录保持有效，可在同一页面重试。不要在迁移过程中手工移动这些文件。
